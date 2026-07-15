@@ -89,17 +89,12 @@ def list_upcoming_matches(
         safe_limit = max(1, min(100, int(limit)))
         safe_offset = max(0, int(offset))
         statuses = ["upcoming", "live", "finished"] if include_finished else ["upcoming", "live"]
-        statement = (
-            select(Match)
-            .options(selectinload(Match.team_a), selectinload(Match.team_b))
-            .where(Match.status.in_(statuses))
-            .order_by(Match.start_time.asc().nullslast(), Match.id.asc())
-        )
+        now = datetime.now(timezone.utc)
+        base_conditions = [Match.status.in_(statuses)]
         if from_date is None:
-            now = datetime.now(timezone.utc)
-            recent_finished_cutoff = datetime.now(timezone.utc) - timedelta(days=21)
+            recent_finished_cutoff = now - timedelta(days=21)
             if include_finished:
-                statement = statement.where(
+                base_conditions.append(
                     or_(
                         Match.status == "live",
                         and_(Match.status == "upcoming", Match.start_time >= now),
@@ -110,15 +105,22 @@ def list_upcoming_matches(
                     )
                 )
             else:
-                statement = statement.where(or_(Match.status == "live", Match.start_time >= now))
+                base_conditions.append(or_(Match.status == "live", Match.start_time >= now))
+        else:
+            base_conditions.append(Match.start_time >= from_date)
+        if to_date:
+            base_conditions.append(Match.start_time <= to_date)
+
+        statement = (
+            select(Match)
+            .options(selectinload(Match.team_a), selectinload(Match.team_b))
+            .where(*base_conditions)
+            .order_by(Match.start_time.asc().nullslast(), Match.id.asc())
+        )
         if source:
             statement = statement.where(Match.external_source == source)
         if tournament:
             statement = statement.where(Match.tournament_name.ilike(f"%{tournament}%"))
-        if from_date:
-            statement = statement.where(Match.start_time >= from_date)
-        if to_date:
-            statement = statement.where(Match.start_time <= to_date)
         if team:
             team_pattern = f"%{team}%"
             statement = statement.where(or_(Match.team_a.has(Team.name.ilike(team_pattern)), Match.team_b.has(Team.name.ilike(team_pattern))))
@@ -131,6 +133,11 @@ def list_upcoming_matches(
                     Match.team_b.has(Team.name.ilike(pattern)),
                 )
             )
+
+        tournament_statement = select(Match.tournament_name, Match.status).where(*base_conditions)
+        if source:
+            tournament_statement = tournament_statement.where(Match.external_source == source)
+        tournament_options = _build_upcoming_tournament_options(db.execute(tournament_statement).all())
 
         matches = list(db.scalars(statement).all())
         matches.sort(key=_upcoming_match_sort_key)
@@ -171,9 +178,38 @@ def list_upcoming_matches(
             "limit": safe_limit,
             "offset": safe_offset,
             "scope_summary": scope_summary,
+            "tournament_options": tournament_options,
         }
 
     return with_db_error_handling(load)
+
+
+def _build_upcoming_tournament_options(rows: list[tuple[str | None, str]]) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for raw_name, status in rows:
+        name = (raw_name or "").strip()
+        if not name:
+            continue
+        key = name.casefold()
+        option = grouped.setdefault(
+            key,
+            {
+                "name": name,
+                "match_count": 0,
+                "live_count": 0,
+                "upcoming_count": 0,
+            },
+        )
+        option["match_count"] += 1
+        if status == "live":
+            option["live_count"] += 1
+        elif status == "upcoming":
+            option["upcoming_count"] += 1
+
+    return sorted(
+        grouped.values(),
+        key=lambda option: (-option["live_count"], option["name"].casefold()),
+    )
 
 
 def _upcoming_match_sort_key(match: Match) -> tuple[int, float, int]:

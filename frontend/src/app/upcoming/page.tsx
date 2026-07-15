@@ -15,23 +15,25 @@ type SearchParams = {
 export default async function UpcomingPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = await searchParams;
   const query = new URLSearchParams();
-  const hasSearchFilter = Boolean(params.q || params.team || params.tournament || params.source);
   for (const [key, value] of Object.entries(params)) {
     if (value) {
       query.set(key, value);
     }
   }
   if (!query.has("limit")) {
-    query.set("limit", "50");
+    query.set("limit", "100");
   }
   query.set("include_prediction", "true");
-  const selectedScope = params.analysis_scope ?? (params.prediction_eligible === "true" ? "strict" : "actionable");
+  const selectedScope = params.analysis_scope ?? (params.prediction_eligible === "true" ? "strict" : "all");
   query.delete("prediction_eligible");
   query.set("analysis_scope", selectedScope);
-  if (hasSearchFilter && !query.has("include_finished")) {
-    query.set("include_finished", "true");
-  }
   const data = await fetchOptional<UpcomingMatchSearchResponse>(`/matches/upcoming?${query.toString()}`);
+  const tournamentOptions = data?.tournament_options ?? [];
+  const selectedTournament = params.tournament ?? "";
+  const hasSelectedTournament = tournamentOptions.some((option) => option.name === selectedTournament);
+  const hasActiveFilters = Boolean(
+    params.q || params.team || params.tournament || params.source || selectedScope !== "all",
+  );
 
   return (
     <main className="page-main">
@@ -41,7 +43,7 @@ export default async function UpcomingPage({ searchParams }: { searchParams: Pro
             <p className="eyebrow">Schedule</p>
             <h1>Upcoming</h1>
           </div>
-          <p className="subtitle">Live and upcoming matches first. Verified pro rows use a cautious preview; training stays strict.</p>
+          <p className="subtitle">Choose a tournament to see all of its live and upcoming matches. Prediction and training guards stay strict.</p>
         </div>
 
         <form className="prediction-placeholder data-coverage-panel" action="/upcoming">
@@ -57,7 +59,17 @@ export default async function UpcomingPage({ searchParams }: { searchParams: Pro
             </label>
             <label className="info-tile">
               <span>Tournament</span>
-              <input name="tournament" defaultValue={params.tournament ?? ""} placeholder="The International" />
+              <select name="tournament" defaultValue={selectedTournament}>
+                <option value="">All upcoming tournaments</option>
+                {selectedTournament && !hasSelectedTournament ? (
+                  <option value={selectedTournament}>{selectedTournament}</option>
+                ) : null}
+                {tournamentOptions.map((option) => (
+                  <option key={option.name} value={option.name}>
+                    {formatTournamentOption(option)}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="info-tile">
               <span>Source</span>
@@ -72,13 +84,16 @@ export default async function UpcomingPage({ searchParams }: { searchParams: Pro
           <label className="info-tile">
             <span>Match scope</span>
             <select name="analysis_scope" defaultValue={selectedScope}>
+              <option value="all">All matches</option>
               <option value="actionable">Strict + verified preview</option>
               <option value="strict">Strict prediction only</option>
               <option value="preview">Verified previews only</option>
-              <option value="all">All synced matches</option>
             </select>
           </label>
-          <button className="analyze-button" type="submit">Search</button>
+          <div className="filter-actions">
+            <button className="analyze-button" type="submit">Show matches</button>
+            {hasActiveFilters ? <Link className="filter-reset" href="/upcoming">Reset</Link> : null}
+          </div>
           <p>Sync hint: bash scripts/sync_upcoming_matches.sh --source pandascore --limit 50</p>
         </form>
 
@@ -229,4 +244,12 @@ function decisionBadgeClass(status: string | null | undefined): string {
 
 function formatPercent(value: number | null | undefined): string {
   return typeof value === "number" ? `${(value * 100).toFixed(1)}%` : "N/A";
+}
+
+function formatTournamentOption(option: NonNullable<UpcomingMatchSearchResponse["tournament_options"]>[number]): string {
+  const statusCounts = [
+    option.live_count ? `${option.live_count} live` : null,
+    option.upcoming_count ? `${option.upcoming_count} upcoming` : null,
+  ].filter(Boolean);
+  return `${option.name} (${statusCounts.join(", ") || `${option.match_count} matches`})`;
 }

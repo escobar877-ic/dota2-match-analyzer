@@ -712,6 +712,12 @@ export type UpcomingMatchSearchResponse = {
   total: number;
   limit: number;
   offset: number;
+  tournament_options?: Array<{
+    name: string;
+    match_count: number;
+    live_count: number;
+    upcoming_count: number;
+  }>;
   scope_summary?: {
     strict_prediction_count: number;
     verified_pro_preview_count: number;

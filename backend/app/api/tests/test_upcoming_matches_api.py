@@ -95,6 +95,31 @@ class UpcomingMatchesApiTests(unittest.TestCase):
         self.assertEqual(list_upcoming_matches(source="pandascore", prediction_eligible=True, db=self.db)["total"], 1)
         self.assertEqual(list_upcoming_matches(source="opendota", db=self.db)["total"], 0)
 
+    def test_upcoming_returns_tournament_picker_options(self):
+        ewc_match = Match(
+            external_source="pandascore",
+            external_id="ewc-upcoming",
+            team_a_id=self.liquid.id,
+            team_b_id=self.spirit.id,
+            tournament_name="Esports World Cup",
+            start_time=datetime.now(timezone.utc) + timedelta(hours=3),
+            format="BO3",
+            status="live",
+            is_tier1_match=True,
+        )
+        self.db.add(ewc_match)
+        self.db.commit()
+
+        response = list_upcoming_matches(source="pandascore", db=self.db)
+
+        options = {option["name"]: option for option in response["tournament_options"]}
+        self.assertEqual(options["The International"]["upcoming_count"], 2)
+        self.assertEqual(options["The International"]["match_count"], 2)
+        self.assertEqual(options["Esports World Cup"]["live_count"], 1)
+        filtered = list_upcoming_matches(tournament="Esports World Cup", db=self.db)
+        self.assertEqual(filtered["total"], 1)
+        self.assertEqual(filtered["items"][0]["external_id"], "ewc-upcoming")
+
     def test_include_finished_does_not_return_stale_upcoming_rows(self):
         stale = Match(
             external_source="pandascore",

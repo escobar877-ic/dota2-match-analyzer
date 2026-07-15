@@ -327,6 +327,30 @@ h1 {
   margin-top: 16px;
 }
 
+.filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.filter-actions .analyze-button {
+  margin-top: 0;
+  padding-inline: 18px;
+}
+
+.filter-reset {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.filter-reset:hover {
+  color: var(--accent);
+}
+
 .data-log-panel h2 {
   margin-bottom: 16px;
 }
@@ -430,6 +454,11 @@ h1 {
   overflow-wrap: anywhere;
   font-size: 22px;
   line-height: 1.15;
+}
+
+.match-card p,
+.match-card .prediction-warning {
+  overflow-wrap: anywhere;
 }
 
 .match-card .detail-grid {
@@ -1213,7 +1242,21 @@ h1 {
   .context-grid,
   .data-source-grid,
   .sync-log-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .match-card {
+    min-width: 0;
+  }
+
+  .match-card .detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .match-card-header .match-date {
+    width: 100%;
+    margin-left: 0;
+    white-space: normal;
   }
 
   .detail-hero {
