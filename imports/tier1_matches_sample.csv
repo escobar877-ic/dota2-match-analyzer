@@ -1,0 +1,4 @@
+external_id,team_a_name,team_b_name,tournament_name,start_time,format,status,winner_team_name,patch_version
+csv-sample-001,Team Liquid,Team Spirit,The International,2026-01-10T18:00:00+00:00,BO3,finished,Team Liquid,7.40
+csv-sample-002,Gaimin Gladiators,BetBoom Team,DreamLeague,2026-01-12T18:00:00+00:00,Best of 3,finished,BetBoom Team,7.40
+csv-sample-003,Random Stack,Team Liquid,Small Local Cup,2026-01-14T18:00:00+00:00,BO3,finished,Random Stack,7.40

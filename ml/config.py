@@ -1,0 +1,9 @@
+ML_LOCAL_ONLY = True
+ML_CPU_ONLY = True
+ML_MAX_TRAINING_ROWS = 50000
+ML_MAX_FEATURES = 200
+ML_RANDOM_STATE = 42
+ML_ALLOWED_MODELS = ["logistic_regression", "random_forest"]
+ML_FORBIDDEN_PACKAGES = ["torch", "tensorflow", "transformers"]
+ML_ARTIFACT_DIR = "ml/artifacts"
+ML_REQUIRE_TIER1_ONLY = True

@@ -1,0 +1,68 @@
+[
+  {
+    "name": "The International",
+    "aliases": ["TI", "The International", "The International Qualifiers", "International"],
+    "quality_tier": "verified_pro",
+    "active": true
+  },
+  {
+    "name": "Riyadh Masters",
+    "aliases": ["Riyadh Masters", "Riyadh"],
+    "quality_tier": "verified_pro",
+    "active": true
+  },
+  {
+    "name": "Esports World Cup",
+    "aliases": ["EWC", "Esports World Cup"],
+    "quality_tier": "verified_pro",
+    "active": true
+  },
+  {
+    "name": "ESL One",
+    "aliases": ["ESL One", "ESL"],
+    "quality_tier": "verified_pro",
+    "active": true
+  },
+  {
+    "name": "DreamLeague",
+    "aliases": ["DreamLeague", "Dream League"],
+    "quality_tier": "verified_pro",
+    "active": true
+  },
+  {
+    "name": "PGL Wallachia",
+    "aliases": ["PGL Wallachia", "PGL"],
+    "quality_tier": "verified_pro",
+    "active": true
+  },
+  {
+    "name": "BetBoom Dacha",
+    "aliases": ["BetBoom Dacha", "Dacha"],
+    "quality_tier": "verified_pro",
+    "active": true
+  },
+  {
+    "name": "BLAST Slam",
+    "aliases": ["BLAST Slam", "BLAST"],
+    "quality_tier": "verified_pro",
+    "active": true
+  },
+  {
+    "name": "FISSURE Universe",
+    "aliases": ["FISSURE Universe", "Fissure Universe", "FISSURE"],
+    "quality_tier": "verified_pro",
+    "active": true
+  },
+  {
+    "name": "Clavision Masters",
+    "aliases": ["Clavision Masters", "Clavision"],
+    "quality_tier": "verified_pro",
+    "active": true
+  },
+  {
+    "name": "Dota 2 Champions League",
+    "aliases": ["Dota 2 Champions League", "D2CL"],
+    "quality_tier": "verified_pro",
+    "active": true
+  }
+]

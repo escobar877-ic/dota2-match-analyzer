@@ -1,0 +1,92 @@
+[
+  {
+    "name": "Team Liquid",
+    "aliases": ["Liquid", "Team Liquid"],
+    "region": "WEU",
+    "active": true
+  },
+  {
+    "name": "Gaimin Gladiators",
+    "aliases": ["GG", "Gaimin", "Gaimin Gladiators"],
+    "region": "WEU",
+    "active": true
+  },
+  {
+    "name": "Team Falcons",
+    "aliases": ["Falcons", "Team Falcons"],
+    "region": "MENA",
+    "active": true
+  },
+  {
+    "name": "BetBoom Team",
+    "aliases": ["BetBoom", "BB Team", "BetBoom Team"],
+    "region": "EEU",
+    "active": true
+  },
+  {
+    "name": "Team Spirit",
+    "aliases": ["Spirit", "Team Spirit"],
+    "region": "EEU",
+    "active": true
+  },
+  {
+    "name": "Tundra Esports",
+    "aliases": ["Tundra", "Tundra Esports"],
+    "region": "WEU",
+    "active": true
+  },
+  {
+    "name": "PARIVISION",
+    "aliases": ["PARI", "PARIVISION", "Parivision"],
+    "region": "EEU",
+    "active": true
+  },
+  {
+    "name": "Xtreme Gaming",
+    "aliases": ["XG", "Xtreme", "Xtreme Gaming"],
+    "region": "China",
+    "active": true
+  },
+  {
+    "name": "Team Tidebound",
+    "aliases": ["Tidebound", "Team Tidebound"],
+    "region": "China",
+    "active": true
+  },
+  {
+    "name": "Aurora",
+    "aliases": ["Aurora", "Aurora Gaming"],
+    "region": "SEA",
+    "active": true
+  },
+  {
+    "name": "Talon Esports",
+    "aliases": ["Talon", "Talon Esports"],
+    "region": "SEA",
+    "active": true
+  },
+  {
+    "name": "Shopify Rebellion",
+    "aliases": ["Shopify", "SR", "Shopify Rebellion"],
+    "region": "NA",
+    "active": true
+  },
+  {
+    "name": "nouns",
+    "aliases": ["nouns", "Nouns"],
+    "region": "NA",
+    "active": true
+  },
+  {
+    "name": "HEROIC",
+    "aliases": ["Heroic", "HEROIC"],
+    "region": "SA",
+    "active": true
+  },
+  {
+    "name": "BOOM Esports",
+    "aliases": ["BOOM", "BOOM Esports"],
+    "region": "SA",
+    "active": true
+  }
+]

@@ -1,0 +1,509 @@
+from __future__ import annotations
+
+import unittest
+import json
+import tempfile
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+
+from app.database import Base
+from app.db.models import Match, PredictionForecast, Team
+from app.prediction.forecast_tracker import (
+    build_prospective_report,
+    horizon_bucket_for_lead_time,
+    score_outcome,
+    settle_forecasts,
+    snapshot_upcoming_forecasts,
+)
+from app.prediction.forecast_gap_report import build_forecast_gap_report
+from app.prediction.schemas import FormulaPredictionResponse, PredictionFactors
+
+
+class ForecastTrackerTests(unittest.TestCase):
+    def test_verified_preview_full_prospective_lifecycle(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        now = datetime(2026, 1, 1, 10, tzinfo=timezone.utc)
+        db = Session(engine)
+        try:
+            team_a = Team(external_source="pandascore", external_id="preview-a", name="Team Yandex")
+            team_b = Team(external_source="pandascore", external_id="preview-b", name="Team Spirit")
+            db.add_all([team_a, team_b])
+            db.flush()
+            match = Match(
+                external_source="pandascore",
+                external_id="preview-match",
+                team_a_id=team_a.id,
+                team_b_id=team_b.id,
+                tournament_name="Esports World Cup",
+                start_time=now + timedelta(hours=1),
+                format="BO3",
+                status="upcoming",
+                is_tier1_match=False,
+                dataset_profile="upcoming",
+                competition_tier="pro",
+                verification_status="verified",
+                source_confidence="high",
+                is_training_eligible=False,
+                is_prediction_eligible=False,
+                prediction_block_reason="team_a_not_tier1",
+            )
+            db.add(match)
+            db.commit()
+            match_id = match.id
+            team_a_id = team_a.id
+        finally:
+            db.close()
+
+        prediction = FormulaPredictionResponse(
+            match_id=str(match_id),
+            prediction_type="verified_pro_preview",
+            model_version="formula_verified_pro_preview_v2",
+            team_a_probability=0.6,
+            team_b_probability=0.4,
+            confidence="low",
+            confidence_score=0.4,
+            factors=PredictionFactors(
+                recent_form=0.0,
+                team_rating=0.0,
+                head_to_head=0.0,
+                hero_pool=0.0,
+                roster_stability=0.0,
+            ),
+            explanation=["Verified preview lifecycle test."],
+            warning="Preview only.",
+            fallback_used=True,
+            series_outcomes={"team_a_win": 0.65, "team_b_win": 0.35, "draw": 0.0},
+        )
+        factory = lambda: Session(engine)
+
+        snapshot_report = snapshot_upcoming_forecasts(
+            hours_ahead=4,
+            now=now,
+            db_factory=factory,
+            preview_prediction_builder=lambda _db, _match: prediction,
+        )
+
+        self.assertEqual(snapshot_report["created"], 1)
+        self.assertEqual(snapshot_report["preview_eligible_matches"], 1)
+        self.assertEqual(snapshot_report["strict_eligible_matches"], 0)
+        self.assertEqual(snapshot_report["samples"][0]["horizon_bucket"], "final")
+        self.assertEqual(snapshot_report["samples"][0]["evaluation_scope"], "verified_pro_preview")
+
+        db = Session(engine)
+        try:
+            stored_match = db.get(Match, match_id)
+            stored_match.status = "finished"
+            stored_match.winner_team_id = team_a_id
+            db.commit()
+        finally:
+            db.close()
+
+        settlement_report = settle_forecasts(
+            now=now + timedelta(hours=3),
+            db_factory=factory,
+            report_writer=lambda _report: None,
+        )
+
+        self.assertEqual(settlement_report["settled_now"], 1)
+        self.assertEqual(settlement_report["report"]["metrics"]["sample_size"], 0)
+        preview_report = settlement_report["report"]["verified_pro_preview"]
+        self.assertEqual(preview_report["metrics"]["sample_size"], 1)
+        self.assertEqual(preview_report["primary_settled_forecasts"], 1)
+        self.assertTrue(preview_report["isolated_from_strict_metrics"])
+
+    def test_scores_correct_bo2_draw(self):
+        result = score_outcome(
+            {"team_a": 0.2, "draw": 0.5, "team_b": 0.3},
+            "draw",
+        )
+
+        self.assertTrue(result["correct"])
+        self.assertAlmostEqual(result["log_loss"], 0.693147, places=6)
+        self.assertAlmostEqual(result["brier_score"], 0.38, places=6)
+
+    def test_wrong_prediction_has_higher_log_loss(self):
+        good = score_outcome({"team_a": 0.7, "team_b": 0.3}, "team_a")
+        bad = score_outcome({"team_a": 0.2, "team_b": 0.8}, "team_a")
+
+        self.assertLess(good["log_loss"], bad["log_loss"])
+        self.assertTrue(good["correct"])
+        self.assertFalse(bad["correct"])
+
+    def test_horizon_boundaries(self):
+        self.assertIsNone(horizon_bucket_for_lead_time(0))
+        self.assertEqual(horizon_bucket_for_lead_time(1.9), "final")
+        self.assertEqual(horizon_bucket_for_lead_time(2), "final")
+        self.assertEqual(horizon_bucket_for_lead_time(2.1), "day_before")
+        self.assertEqual(horizon_bucket_for_lead_time(24), "day_before")
+        self.assertEqual(horizon_bucket_for_lead_time(24.1), "early")
+        self.assertEqual(horizon_bucket_for_lead_time(168), "early")
+        self.assertIsNone(horizon_bucket_for_lead_time(168.1))
+
+    def test_primary_metrics_use_final_horizon_only(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        db = Session(engine)
+        try:
+            team_a = Team(name="A")
+            team_b = Team(name="B")
+            db.add_all([team_a, team_b])
+            db.flush()
+            match = Match(
+                team_a_id=team_a.id,
+                team_b_id=team_b.id,
+                tournament_name="Test",
+                start_time=datetime(2026, 1, 2, tzinfo=timezone.utc),
+                format="BO3",
+                status="finished",
+                winner_team_id=team_a.id,
+            )
+            db.add(match)
+            db.flush()
+            early = self._forecast(match.id, "early", 100, log_loss=1.0, correct=False)
+            final = self._forecast(match.id, "final", 1, log_loss=0.2, correct=True)
+            final.components_json = {
+                "formula": {
+                    "available": True,
+                    "team_a_probability": 0.62,
+                    "weight": 0.35,
+                }
+            }
+            preview_match = Match(
+                team_a_id=team_a.id,
+                team_b_id=team_b.id,
+                tournament_name="Test Preview",
+                start_time=datetime(2026, 1, 3, tzinfo=timezone.utc),
+                format="BO3",
+                status="finished",
+                winner_team_id=team_b.id,
+            )
+            db.add(preview_match)
+            db.flush()
+            preview = self._forecast(
+                preview_match.id,
+                "final",
+                1,
+                log_loss=0.4,
+                correct=True,
+            )
+            preview.prediction_type = "verified_pro_preview"
+            preview.actual_outcome = "team_b"
+            db.add_all([early, final, preview])
+            db.commit()
+
+            report = build_prospective_report(db)
+
+            self.assertEqual(report["primary_horizon"], "final")
+            self.assertEqual(report["metrics"]["sample_size"], 1)
+            self.assertEqual(report["metrics"]["log_loss"], 0.2)
+            self.assertEqual(report["all_horizons_metrics"]["sample_size"], 2)
+            self.assertEqual(report["by_horizon"]["early"]["settled"], 1)
+            self.assertEqual(report["by_format"]["BO3"]["sample_size"], 1)
+            self.assertEqual(report["all_horizons_by_format"]["BO3"]["sample_size"], 2)
+            self.assertEqual(report["component_metrics"]["formula"]["sample_size"], 1)
+            self.assertEqual(report["component_metrics"]["ensemble"]["sample_size"], 1)
+            self.assertEqual(report["coverage"]["final_capture_rate"], 1.0)
+            self.assertEqual(report["quality_gates"]["final_sample_size"], "collecting")
+            self.assertFalse(report["quality_gates"]["betting_claims_allowed"])
+            self.assertEqual(report["all_scopes_total_forecasts"], 3)
+            self.assertEqual(report["verified_pro_preview"]["metrics"]["sample_size"], 1)
+            self.assertIn("component_metrics", report["verified_pro_preview"])
+            self.assertTrue(report["verified_pro_preview"]["isolated_from_strict_metrics"])
+            self.assertFalse(report["verified_pro_preview"]["used_for_training"])
+        finally:
+            db.close()
+
+    def test_gap_report_flags_missing_final_snapshot(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        db = Session(engine)
+        now = datetime(2026, 1, 1, 10, tzinfo=timezone.utc)
+        try:
+            match = self._upcoming_match(db, now + timedelta(hours=1))
+            db.add(self._forecast(match.id, "early", 100, log_loss=1.0, correct=False))
+            db.commit()
+
+            report = build_forecast_gap_report(db, now=now, artifact_path=None, refresh_report_path=None)
+
+            self.assertEqual(report["status"], "failed")
+            self.assertEqual(report["summary"]["missing_final_snapshots"], 1)
+            self.assertEqual(report["missing_snapshots"][0]["missing_horizon"], "final")
+        finally:
+            db.close()
+
+    def test_gap_report_accepts_existing_final_snapshot(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        db = Session(engine)
+        now = datetime(2026, 1, 1, 10, tzinfo=timezone.utc)
+        try:
+            match = self._upcoming_match(db, now + timedelta(hours=1))
+            forecast = self._forecast(match.id, "final", 1, log_loss=0.2, correct=True)
+            forecast.scheduled_start = match.start_time
+            db.add(forecast)
+            db.commit()
+
+            report = build_forecast_gap_report(db, now=now, artifact_path=None, refresh_report_path=None)
+
+            self.assertEqual(report["status"], "ok")
+            self.assertEqual(report["summary"]["missing_final_snapshots"], 0)
+            self.assertEqual(report["checks"]["final_horizon_snapshots"], "ok")
+        finally:
+            db.close()
+
+    def test_gap_report_finds_historical_missing_final(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        db = Session(engine)
+        now = datetime(2026, 1, 3, 10, tzinfo=timezone.utc)
+        try:
+            match = self._finished_tracked_match(db, now - timedelta(hours=3))
+            forecast = self._forecast(match.id, "early", 48, log_loss=0.4, correct=True)
+            forecast.scheduled_start = match.start_time
+            db.add(forecast)
+            db.commit()
+
+            report = build_forecast_gap_report(
+                db,
+                now=now,
+                artifact_path=None,
+                refresh_report_path=None,
+            )
+
+            self.assertEqual(report["status"], "warning")
+            self.assertEqual(report["summary"]["tracked_finished_matches"], 1)
+            self.assertEqual(report["summary"]["historical_missing_final_snapshots"], 1)
+            self.assertEqual(report["historical_final_gaps"][0]["match_id"], match.id)
+        finally:
+            db.close()
+
+    def test_gap_report_detects_schedule_drift(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        db = Session(engine)
+        now = datetime(2026, 1, 1, 10, tzinfo=timezone.utc)
+        try:
+            match = self._upcoming_match(db, now + timedelta(hours=10))
+            forecast = self._forecast(match.id, "day_before", 10, log_loss=0.2, correct=True)
+            forecast.scheduled_start = match.start_time - timedelta(hours=2)
+            db.add(forecast)
+            db.commit()
+
+            report = build_forecast_gap_report(
+                db,
+                now=now,
+                artifact_path=None,
+                refresh_report_path=None,
+            )
+
+            self.assertEqual(report["status"], "warning")
+            self.assertEqual(report["summary"]["schedule_drift_forecasts"], 1)
+            self.assertEqual(report["schedule_drift_gaps"][0]["drift_minutes"], 120.0)
+        finally:
+            db.close()
+
+    def test_gap_report_detects_stale_refresh(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        db = Session(engine)
+        now = datetime(2026, 1, 1, 10, tzinfo=timezone.utc)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "prediction_refresh_report.json"
+                path.write_text(
+                    json.dumps(
+                        {
+                            "status": "ok",
+                            "generated_at": (now - timedelta(hours=2)).isoformat(),
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                report = build_forecast_gap_report(
+                    db,
+                    now=now,
+                    artifact_path=None,
+                    refresh_report_path=path,
+                    max_refresh_age_minutes=45,
+                )
+
+            self.assertEqual(report["status"], "warning")
+            self.assertTrue(report["summary"]["refresh_stale"])
+            self.assertEqual(report["summary"]["refresh_age_minutes"], 120.0)
+            self.assertEqual(report["checks"]["scheduler_freshness"], "warning")
+        finally:
+            db.close()
+
+    def test_gap_report_uses_cycle_status_for_latest_refresh(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        db = Session(engine)
+        now = datetime(2026, 1, 1, 10, tzinfo=timezone.utc)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "prediction_refresh_report.json"
+                path.write_text(
+                    json.dumps(
+                        {
+                            "status": "warning",
+                            "cycle_status": "ok",
+                            "generated_at": now.isoformat(),
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                report = build_forecast_gap_report(
+                    db,
+                    now=now,
+                    artifact_path=None,
+                    refresh_report_path=path,
+                )
+
+            self.assertEqual(report["summary"]["refresh_status"], "ok")
+            self.assertEqual(report["checks"]["refresh_report"], "ok")
+        finally:
+            db.close()
+
+    def test_primary_metrics_ignore_superseded_final_schedule(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        db = Session(engine)
+        try:
+            match = self._finished_tracked_match(
+                db,
+                datetime(2026, 1, 2, tzinfo=timezone.utc),
+            )
+            superseded = self._forecast(match.id, "final", 1, log_loss=1.2, correct=False)
+            superseded.is_primary = False
+            current = self._forecast(match.id, "final", 1, log_loss=0.2, correct=True)
+            current.scheduled_start = superseded.scheduled_start + timedelta(hours=2)
+            db.add_all([superseded, current])
+            db.commit()
+
+            report = build_prospective_report(db)
+
+            self.assertEqual(report["metrics"]["sample_size"], 1)
+            self.assertEqual(report["metrics"]["log_loss"], 0.2)
+            self.assertEqual(report["superseded_final_forecasts"], 1)
+        finally:
+            db.close()
+
+    def test_gap_report_finds_settlement_gap(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        db = Session(engine)
+        now = datetime(2026, 1, 2, 10, tzinfo=timezone.utc)
+        try:
+            team_a = Team(name="A")
+            team_b = Team(name="B")
+            db.add_all([team_a, team_b])
+            db.flush()
+            match = Match(
+                team_a_id=team_a.id,
+                team_b_id=team_b.id,
+                tournament_name="Test",
+                start_time=now - timedelta(hours=2),
+                format="BO3",
+                status="finished",
+                winner_team_id=team_a.id,
+                is_tier1_match=True,
+            )
+            db.add(match)
+            db.flush()
+            forecast = self._forecast(match.id, "final", 1, log_loss=0.2, correct=True)
+            forecast.status = "pending"
+            db.add(forecast)
+            db.commit()
+
+            report = build_forecast_gap_report(db, now=now, artifact_path=None, refresh_report_path=None)
+
+            self.assertEqual(report["status"], "warning")
+            self.assertEqual(report["summary"]["pending_settlement_gaps"], 1)
+            self.assertEqual(report["settlement_gaps"][0]["match_id"], match.id)
+        finally:
+            db.close()
+
+    @staticmethod
+    def _forecast(
+        match_id: int,
+        horizon: str,
+        lead_hours: float,
+        *,
+        log_loss: float,
+        correct: bool,
+    ) -> PredictionForecast:
+        timestamp = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        return PredictionForecast(
+            match_id=match_id,
+            horizon_bucket=horizon,
+            is_primary=horizon == "final",
+            generated_at=timestamp,
+            scheduled_start=datetime(2026, 1, 2, tzinfo=timezone.utc),
+            lead_time_hours=lead_hours,
+            prediction_type="ensemble",
+            model_version="test",
+            team_a_probability=0.6,
+            team_b_probability=0.4,
+            confidence_label="medium",
+            confidence_score=0.6,
+            predicted_outcomes_json={"team_a": 0.6, "team_b": 0.4},
+            status="settled",
+            actual_outcome="team_a",
+            log_loss=log_loss,
+            brier_score=0.2,
+            correct=correct,
+            settled_at=timestamp,
+        )
+
+    @staticmethod
+    def _upcoming_match(db: Session, start_time: datetime) -> Match:
+        team_a = Team(name="A")
+        team_b = Team(name="B")
+        db.add_all([team_a, team_b])
+        db.flush()
+        match = Match(
+            external_source="pandascore",
+            external_id="scheduled-1",
+            team_a_id=team_a.id,
+            team_b_id=team_b.id,
+            tournament_name="Test",
+            start_time=start_time,
+            format="BO3",
+            status="upcoming",
+            is_tier1_match=True,
+            is_prediction_eligible=True,
+        )
+        db.add(match)
+        db.flush()
+        return match
+
+    @staticmethod
+    def _finished_tracked_match(db: Session, start_time: datetime) -> Match:
+        team_a = Team(name=f"A-{start_time.timestamp()}")
+        team_b = Team(name=f"B-{start_time.timestamp()}")
+        db.add_all([team_a, team_b])
+        db.flush()
+        match = Match(
+            external_source="pandascore",
+            external_id=f"finished-{start_time.timestamp()}",
+            team_a_id=team_a.id,
+            team_b_id=team_b.id,
+            tournament_name="Test",
+            start_time=start_time,
+            format="BO3",
+            status="finished",
+            winner_team_id=team_a.id,
+            is_tier1_match=True,
+            is_prediction_eligible=True,
+        )
+        db.add(match)
+        db.flush()
+        return match
+
+
+if __name__ == "__main__":
+    unittest.main()

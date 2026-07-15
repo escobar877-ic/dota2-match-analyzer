@@ -1,0 +1,50 @@
+[
+  {
+    "name": "The International",
+    "aliases": ["TI", "The International"],
+    "tier": 1,
+    "active": true
+  },
+  {
+    "name": "Riyadh Masters",
+    "aliases": ["Riyadh", "Riyadh Masters"],
+    "tier": 1,
+    "active": true
+  },
+  {
+    "name": "Esports World Cup",
+    "aliases": ["EWC", "Esports World Cup"],
+    "tier": 1,
+    "active": true
+  },
+  {
+    "name": "ESL One",
+    "aliases": ["ESL", "ESL One"],
+    "tier": 1,
+    "active": true
+  },
+  {
+    "name": "DreamLeague",
+    "aliases": ["DreamLeague", "Dream League"],
+    "tier": 1,
+    "active": true
+  },
+  {
+    "name": "PGL Wallachia",
+    "aliases": ["PGL", "PGL Wallachia"],
+    "tier": 1,
+    "active": true
+  },
+  {
+    "name": "BetBoom Dacha",
+    "aliases": ["Dacha", "BetBoom Dacha"],
+    "tier": 1,
+    "active": true
+  },
+  {
+    "name": "BLAST Slam",
+    "aliases": ["BLAST", "BLAST Slam"],
+    "tier": 1,
+    "active": true
+  }
+]

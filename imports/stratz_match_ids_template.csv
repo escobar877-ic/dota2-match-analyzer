@@ -1,0 +1,2 @@
+match_id,expected_team_a_name,expected_team_b_name,expected_tournament_name,expected_start_date,source_url,verification_note
+1234567890,Team Liquid,Team Spirit,The International,2026-01-01,https://example.com/verified-match-source,Replace this sample with manually verified real STRATZ/Dota match IDs before apply.

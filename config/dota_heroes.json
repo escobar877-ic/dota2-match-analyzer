@@ -1,0 +1,98 @@
+[
+  {
+    "hero_id": 1,
+    "name": "npc_dota_hero_antimage",
+    "localized_name": "Anti-Mage",
+    "primary_attr": "agi",
+    "roles": ["Carry", "Escape", "Nuker"],
+    "is_active": true
+  },
+  {
+    "hero_id": 2,
+    "name": "npc_dota_hero_axe",
+    "localized_name": "Axe",
+    "primary_attr": "str",
+    "roles": ["Initiator", "Durable", "Disabler"],
+    "is_active": true
+  },
+  {
+    "hero_id": 3,
+    "name": "npc_dota_hero_bane",
+    "localized_name": "Bane",
+    "primary_attr": "all",
+    "roles": ["Support", "Disabler", "Nuker"],
+    "is_active": true
+  },
+  {
+    "hero_id": 4,
+    "name": "npc_dota_hero_bloodseeker",
+    "localized_name": "Bloodseeker",
+    "primary_attr": "agi",
+    "roles": ["Carry", "Disabler", "Nuker"],
+    "is_active": true
+  },
+  {
+    "hero_id": 5,
+    "name": "npc_dota_hero_crystal_maiden",
+    "localized_name": "Crystal Maiden",
+    "primary_attr": "int",
+    "roles": ["Support", "Disabler", "Nuker"],
+    "is_active": true
+  },
+  {
+    "hero_id": 6,
+    "name": "npc_dota_hero_drow_ranger",
+    "localized_name": "Drow Ranger",
+    "primary_attr": "agi",
+    "roles": ["Carry", "Disabler", "Pusher"],
+    "is_active": true
+  },
+  {
+    "hero_id": 7,
+    "name": "npc_dota_hero_earthshaker",
+    "localized_name": "Earthshaker",
+    "primary_attr": "str",
+    "roles": ["Support", "Initiator", "Disabler"],
+    "is_active": true
+  },
+  {
+    "hero_id": 8,
+    "name": "npc_dota_hero_juggernaut",
+    "localized_name": "Juggernaut",
+    "primary_attr": "agi",
+    "roles": ["Carry", "Pusher", "Escape"],
+    "is_active": true
+  },
+  {
+    "hero_id": 9,
+    "name": "npc_dota_hero_mirana",
+    "localized_name": "Mirana",
+    "primary_attr": "all",
+    "roles": ["Carry", "Support", "Escape"],
+    "is_active": true
+  },
+  {
+    "hero_id": 10,
+    "name": "npc_dota_hero_morphling",
+    "localized_name": "Morphling",
+    "primary_attr": "agi",
+    "roles": ["Carry", "Escape", "Durable"],
+    "is_active": true
+  },
+  {
+    "hero_id": 11,
+    "name": "npc_dota_hero_nevermore",
+    "localized_name": "Shadow Fiend",
+    "primary_attr": "agi",
+    "roles": ["Carry", "Nuker"],
+    "is_active": true
+  },
+  {
+    "hero_id": 12,
+    "name": "npc_dota_hero_phantom_lancer",
+    "localized_name": "Phantom Lancer",
+    "primary_attr": "agi",
+    "roles": ["Carry", "Escape", "Pusher"],
+    "is_active": true
+  }
+]

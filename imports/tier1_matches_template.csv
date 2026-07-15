@@ -1,0 +1,2 @@
+external_id,series_id,game_number,team_a_name,team_b_name,radiant_team_name,dire_team_name,tournament_name,start_time,format,status,winner_team_name,team_a_score,team_b_score,patch_version,duration_seconds,vod_url,source_url
+sample-ti-2026-g1,ti-2026-sample,1,Team Liquid,Team Spirit,Team Liquid,Team Spirit,The International,2026-01-10T18:00:00+00:00,BO3,finished,Team Liquid,2,1,7.40,2400,https://example.com/vod,https://example.com/source

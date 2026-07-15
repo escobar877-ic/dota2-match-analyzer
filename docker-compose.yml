@@ -1,0 +1,116 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: dota-analyzer-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-dota_analyzer}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    image: betboom-backend:latest
+    build:
+      context: .
+      dockerfile: ./backend/Dockerfile
+    container_name: dota-analyzer-backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/dota_analyzer}
+      USE_DEMO_DATA: ${USE_DEMO_DATA:-false}
+      OPENDOTA_API_KEY: ${OPENDOTA_API_KEY:-}
+      STRATZ_API_KEY: ${STRATZ_API_KEY:-}
+      PANDASCORE_API_KEY: ${PANDASCORE_API_KEY:-}
+      SPORTSGAMEODDS_API_KEY: ${SPORTSGAMEODDS_API_KEY:-}
+    volumes:
+      - ./ml/artifacts:/app/ml/artifacts
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: dota-analyzer-frontend
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_BACKEND_URL: http://localhost:8000
+      BACKEND_INTERNAL_URL: http://backend:8000
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 4
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: ./worker/Dockerfile
+    container_name: dota-analyzer-worker
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/dota_analyzer}
+      USE_DEMO_DATA: ${USE_DEMO_DATA:-false}
+      OPENDOTA_API_KEY: ${OPENDOTA_API_KEY:-}
+      STRATZ_API_KEY: ${STRATZ_API_KEY:-}
+      PANDASCORE_API_KEY: ${PANDASCORE_API_KEY:-}
+      SPORTSGAMEODDS_API_KEY: ${SPORTSGAMEODDS_API_KEY:-}
+    volumes:
+      - ./ml/artifacts:/app/ml/artifacts
+      - ./data:/app/data:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  forecast-scheduler:
+    image: betboom-backend:latest
+    container_name: dota-analyzer-forecast-scheduler
+    restart: unless-stopped
+    command:
+      - python
+      - -m
+      - worker.data_ingestion.prediction_refresh_scheduler
+      - --interval-seconds
+      - ${FORECAST_REFRESH_INTERVAL_SECONDS:-900}
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/dota_analyzer}
+      USE_DEMO_DATA: ${USE_DEMO_DATA:-false}
+      OPENDOTA_API_KEY: ${OPENDOTA_API_KEY:-}
+      STRATZ_API_KEY: ${STRATZ_API_KEY:-}
+      PANDASCORE_API_KEY: ${PANDASCORE_API_KEY:-}
+      SPORTSGAMEODDS_API_KEY: ${SPORTSGAMEODDS_API_KEY:-}
+      FORECAST_REFRESH_STALE_MINUTES: ${FORECAST_REFRESH_STALE_MINUTES:-45}
+    volumes:
+      - ./ml/artifacts:/app/ml/artifacts
+    healthcheck:
+      test: ["CMD", "python", "-c", "assert b'prediction_refresh_scheduler' in open('/proc/1/cmdline', 'rb').read()"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

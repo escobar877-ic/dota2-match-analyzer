@@ -1,0 +1,10 @@
+.git
+frontend/node_modules
+frontend/.next
+backend/__pycache__
+backend/.pytest_cache
+worker/__pycache__
+**/__pycache__
+**/*.pyc
+.env
+ml/artifacts/source_cache

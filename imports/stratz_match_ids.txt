@@ -1,0 +1,1 @@
+# One numeric Dota match ID per line.

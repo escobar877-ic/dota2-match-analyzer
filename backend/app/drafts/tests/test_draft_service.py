@@ -1,0 +1,111 @@
+from __future__ import annotations
+
+import sys
+import unittest
+from datetime import datetime, timezone
+from pathlib import Path
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+
+backend_dir = Path(__file__).resolve().parents[3]
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
+
+from app.api.matches import get_match_draft, get_match_draft_features
+from app.database import Base
+from app.db.models import Hero, Match, MatchDraft, Team
+from app.drafts.draft_service import get_draft_completeness
+
+
+class DraftServiceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        self.db = Session(engine)
+        self.team_a = Team(name="Team Liquid", is_active_tier1=True)
+        self.team_b = Team(name="Team Spirit", is_active_tier1=True)
+        self.db.add_all([self.team_a, self.team_b])
+        self.db.flush()
+        self.heroes = [
+            Hero(hero_id=index + 1, name=f"hero_{index + 1}", localized_name=f"Hero {index + 1}", roles_json=["Carry"])
+            for index in range(12)
+        ]
+        self.db.add_all(self.heroes)
+        self.db.flush()
+        self.match = Match(
+            team_a_id=self.team_a.id,
+            team_b_id=self.team_b.id,
+            tournament_name="The International",
+            start_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            status="upcoming",
+            is_tier1_match=True,
+        )
+        self.db.add(self.match)
+        self.db.commit()
+
+    def tearDown(self) -> None:
+        self.db.close()
+
+    def test_draft_completeness_false_when_missing(self):
+        completeness = get_draft_completeness(self.db, self.match.id)
+
+        self.assertFalse(completeness["draft_available"])
+        self.assertFalse(completeness["draft_complete"])
+
+    def test_draft_completeness_true_when_5v5_picks_exist(self):
+        self._add_picks(5)
+
+        completeness = get_draft_completeness(self.db, self.match.id)
+
+        self.assertTrue(completeness["draft_available"])
+        self.assertTrue(completeness["draft_complete"])
+        self.assertEqual(completeness["team_a_picks_count"], 5)
+        self.assertEqual(completeness["team_b_picks_count"], 5)
+
+    def test_api_match_draft_works(self):
+        self._add_picks(1)
+
+        response = get_match_draft(self.match.id, db=self.db)
+
+        self.assertTrue(response["draft_available"])
+        self.assertEqual(len(response["entries"]), 2)
+
+    def test_api_match_draft_features_works(self):
+        response = get_match_draft_features(self.match.id, db=self.db)
+
+        self.assertTrue(response["experimental"])
+        self.assertFalse(response["features"]["draft_available"])
+
+    def _add_picks(self, count: int) -> None:
+        draft_order = 1
+        for index in range(count):
+            self.db.add(
+                MatchDraft(
+                    match_id=self.match.id,
+                    team_id=self.team_a.id,
+                    hero_id=self.heroes[index].id,
+                    action_type="pick",
+                    pick_order=index + 1,
+                    draft_order=draft_order,
+                    source="test",
+                )
+            )
+            draft_order += 1
+            self.db.add(
+                MatchDraft(
+                    match_id=self.match.id,
+                    team_id=self.team_b.id,
+                    hero_id=self.heroes[index + 5].id,
+                    action_type="pick",
+                    pick_order=index + 1,
+                    draft_order=draft_order,
+                    source="test",
+                )
+            )
+            draft_order += 1
+        self.db.commit()
+
+
+if __name__ == "__main__":
+    unittest.main()
