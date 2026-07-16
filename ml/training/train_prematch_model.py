@@ -30,6 +30,7 @@ from ml.evaluation.metrics import calculate_classification_metrics
 from ml.features.feature_schema import FEATURE_VERSION
 from ml.models.calibration import calibrate_probabilities_guarded
 from ml.models.elo_baseline import EloBaselineModel
+from ml.models.extra_trees_model import create_extra_trees_model
 from ml.models.logistic_regression_model import create_logistic_regression_model
 from ml.models.random_forest_model import create_random_forest_model
 from ml.safety import assert_local_ml_only, assert_no_forbidden_packages
@@ -50,6 +51,7 @@ def train_prematch_model(
     force_promote: bool = False,
     training_profile: str = "tier1_only",
     feature_set: str = "all",
+    candidate_model: str = "auto",
 ) -> dict[str, Any]:
     assert_local_ml_only()
     assert_no_forbidden_packages()
@@ -76,6 +78,7 @@ def train_prematch_model(
             ),
             ("logistic_regression", "sklearn", create_logistic_regression_model()),
             ("random_forest", "sklearn", create_random_forest_model()),
+            ("extra_trees", "sklearn", create_extra_trees_model()),
         ]
 
         results = []
@@ -113,17 +116,29 @@ def train_prematch_model(
         if not results:
             raise NotEnoughTrainingDataError("Not enough Tier 1 historical matches to train ML model.")
 
-        selected = min(
-            results,
-            key=lambda item: (
-                _metric_sort_value(
-                    (item["tier1_validation_metrics"] or item["validation_metrics"]).get("log_loss")
+        if candidate_model == "auto":
+            selected = min(
+                results,
+                key=lambda item: (
+                    _metric_sort_value(
+                        (item["tier1_validation_metrics"] or item["validation_metrics"]).get(
+                            "log_loss"
+                        )
+                    ),
+                    _metric_sort_value(
+                        (item["tier1_validation_metrics"] or item["validation_metrics"]).get(
+                            "brier_score"
+                        )
+                    ),
                 ),
-                _metric_sort_value(
-                    (item["tier1_validation_metrics"] or item["validation_metrics"]).get("brier_score")
-                ),
-            ),
-        )
+            )
+        else:
+            selected = next(
+                (item for item in results if item["model_name"] == candidate_model),
+                None,
+            )
+            if selected is None:
+                raise ValueError(f"Candidate model '{candidate_model}' could not be trained.")
         calibrator, calibration_guard = calibrate_probabilities_guarded(
             selected["validation_probabilities"],
             split.validation.y,
@@ -179,6 +194,7 @@ def train_prematch_model(
             "selection_metric_scope": (
                 "tier1_validation" if selected["tier1_validation_metrics"] else "all_validation"
             ),
+            "candidate_selection": candidate_model,
             "is_calibrated": calibrator is not None,
             "calibration_guard": calibration_guard,
             "training_completed": True,
@@ -221,6 +237,12 @@ def main() -> None:
         default="tier1_only",
     )
     parser.add_argument("--feature-set", choices=["all", "differential"], default="all")
+    parser.add_argument(
+        "--model",
+        choices=["auto", "elo_baseline", "logistic_regression", "random_forest", "extra_trees"],
+        default="auto",
+        help="Create a specific candidate for evaluation; auto keeps metric-based selection.",
+    )
     args = parser.parse_args()
     try:
         report = train_prematch_model(
@@ -229,6 +251,7 @@ def main() -> None:
             force_promote=args.force_promote,
             training_profile=args.training_profile,
             feature_set=args.feature_set,
+            candidate_model=args.model,
         )
     except NotEnoughTrainingDataError as exc:
         print(str(exc))

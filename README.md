@@ -574,6 +574,26 @@ python -m ml.training.model_promotion --promote MODEL_VERSION_ID --reason "revie
 bash scripts/promote_model.sh MODEL_VERSION_ID "reviewed backtest metrics"
 ```
 
+The default training command keeps metric-based `auto` selection. A specific
+lightweight candidate can be created for isolated evaluation without changing
+the active model:
+
+```bash
+docker compose run --rm worker python -m ml.training.train_prematch_model \
+  --training-profile tier1_plus_verified_pro \
+  --feature-set differential \
+  --model extra_trees
+docker compose run --rm worker python -m ml.evaluation.backtest --model-version MODEL_VERSION_ID
+docker compose run --rm worker python -m ml.evaluation.walk_forward \
+  --training-profile tier1_plus_verified_pro \
+  --feature-set differential \
+  --model extra_trees
+```
+
+`extra_trees` uses the existing local scikit-learn dependency with conservative
+regularization. It is candidate-only until the same holdout, calibration, and
+walk-forward promotion gates pass. Running these commands never promotes it.
+
 Before promotion, review data coverage and backtest results. A candidate should only replace the active model when artifacts exist, backtest exists, `log_loss` and `brier_score` are not worse than the active model, and calibration is acceptable.
 
 Synthetic `dev_seed` promotion is for local testing only and requires an explicit dev flag in automated promotion flows. It is not real accuracy. Rollback is possible by promoting an older model version that still has its artifacts.

@@ -37,6 +37,7 @@ from ml.evaluation.calibration_report import build_calibration_report
 from ml.evaluation.metrics import calculate_classification_metrics
 from ml.features.feature_schema import FEATURE_VERSION
 from ml.models.calibration import calibrate_probabilities_guarded
+from ml.models.extra_trees_model import create_extra_trees_model
 from ml.models.logistic_regression_model import create_logistic_regression_model
 from ml.models.random_forest_model import create_random_forest_model
 from ml.training.dataset_builder import (
@@ -620,6 +621,8 @@ def _create_model(model_name: str):
         return create_random_forest_model()
     if model_name == "logistic_regression":
         return create_logistic_regression_model()
+    if model_name == "extra_trees":
+        return create_extra_trees_model()
     raise ValueError(f"Unsupported walk-forward model: {model_name}")
 
 
@@ -655,7 +658,11 @@ def _get_active_model(db: Session) -> ModelVersion | None:
 def _resolve_model_name(requested: str, active_model: ModelVersion | None) -> str:
     if requested != "auto":
         return requested
-    if active_model and active_model.model_name in {"random_forest", "logistic_regression"}:
+    if active_model and active_model.model_name in {
+        "random_forest",
+        "logistic_regression",
+        "extra_trees",
+    }:
         return active_model.model_name
     return "random_forest"
 
@@ -683,7 +690,7 @@ def main() -> None:
     parser.add_argument("--min-eval-rows", type=int, default=DEFAULT_MIN_EVAL_ROWS)
     parser.add_argument(
         "--model",
-        choices=["auto", "random_forest", "logistic_regression"],
+        choices=["auto", "random_forest", "logistic_regression", "extra_trees"],
         default="auto",
     )
     parser.add_argument(

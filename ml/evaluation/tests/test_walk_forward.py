@@ -4,6 +4,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from ml.evaluation.walk_forward import (
+    _create_model,
     build_walk_forward_folds,
     build_weight_optimization_report,
     evaluate_stability,
@@ -13,6 +14,9 @@ from ml.training.dataset_builder import DatasetRow
 
 
 class WalkForwardTests(unittest.TestCase):
+    def test_extra_trees_model_is_available_for_candidate_validation(self):
+        self.assertEqual(_create_model("extra_trees").__class__.__name__, "ExtraTreesClassifier")
+
     def test_folds_never_train_on_evaluation_or_future_rows(self):
         start = datetime(2024, 1, 1, tzinfo=timezone.utc)
         rows = [

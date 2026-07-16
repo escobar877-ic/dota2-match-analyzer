@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from ml.models.calibration import calibrate_probabilities_guarded
+from ml.models.extra_trees_model import create_extra_trees_model
 from ml.models.logistic_regression_model import create_logistic_regression_model
 from ml.models.model_loader import load_active_model, load_feature_schema, model_artifacts_exist
 from ml.models.random_forest_model import create_random_forest_model
@@ -41,6 +42,7 @@ class LocalModelTests(unittest.TestCase):
     def test_allowed_models_are_created(self):
         self.assertEqual(create_logistic_regression_model().__class__.__name__, "Pipeline")
         self.assertEqual(create_random_forest_model().__class__.__name__, "RandomForestClassifier")
+        self.assertEqual(create_extra_trees_model().__class__.__name__, "ExtraTreesClassifier")
 
     def test_forbidden_model_rejected(self):
         with self.assertRaises(MLSafetyError):
