@@ -466,16 +466,15 @@ def _match_has_roster_context(db: Session, match: Match) -> bool:
     if match.start_time is None:
         return False
     for team_id in (match.team_a_id, match.team_b_id):
-        roster_id = db.scalar(
-            select(TeamRoster.id)
+        roster_count = db.scalar(
+            select(func.count(func.distinct(TeamRoster.player_id)))
             .where(
                 TeamRoster.team_id == team_id,
                 TeamRoster.start_date <= match.start_time,
-                (TeamRoster.end_date.is_(None)) | (TeamRoster.end_date >= match.start_time),
+                (TeamRoster.end_date.is_(None)) | (TeamRoster.end_date > match.start_time),
             )
-            .limit(1)
         )
-        if not roster_id:
+        if roster_count != 5:
             return False
     return True
 

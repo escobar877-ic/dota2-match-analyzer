@@ -89,6 +89,16 @@ class MatchDetailEnrichmentTests(unittest.TestCase):
         self.assertEqual(self.db.query(MatchDraft).count(), 0)
         self.assertEqual(self.db.query(DataSyncLog).count(), 0)
 
+    def test_valid_detail_is_saved_to_shared_cache_atomically(self):
+        cache_dir = Path(self.temp_dir.name) / "detail-cache"
+
+        result = self._run(apply=False, detail_cache_dir=cache_dir)
+
+        cache_path = cache_dir / "123456.json"
+        self.assertEqual(result["details_cached"], 1)
+        self.assertTrue(cache_path.exists())
+        self.assertFalse((cache_dir / "123456.json.tmp").exists())
+
     def test_apply_creates_stats_draft_and_snapshot(self):
         result = self._run(apply=True)
 
@@ -206,6 +216,7 @@ class MatchDetailEnrichmentTests(unittest.TestCase):
         force: bool = False,
         client: FakeOpenDotaClient | None = None,
         artifact_path: Path | None = None,
+        detail_cache_dir: Path | None = None,
     ) -> dict:
         with patch("worker.data_ingestion.match_detail_enrichment.get_session", return_value=self.db):
             return enrich_match_details(
@@ -215,6 +226,7 @@ class MatchDetailEnrichmentTests(unittest.TestCase):
                 force=force,
                 client=client or FakeOpenDotaClient(),
                 artifact_path=artifact_path,
+                detail_cache_dir=detail_cache_dir or Path(self.temp_dir.name) / "detail-cache",
             )
 
 
@@ -228,6 +240,8 @@ def _raw_match() -> dict:
         players.append(
             {
                 "isRadiant": radiant,
+                "account_id": index + 1,
+                "personaname": f"player-{index + 1}",
                 "player_slot": index if radiant else 128 + index,
                 "kills": 2 + index,
                 "deaths": 1 + index,

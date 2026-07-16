@@ -32,13 +32,18 @@ from worker.data_ingestion.match_detail_enrichment import (
     _is_radiant_player,
     _validate_detail,
 )
+from worker.data_ingestion.opendota_detail_cache import (
+    DEFAULT_CACHE_DIR,
+    load_cached_match_detail,
+    write_cached_match_detail,
+)
 from worker.data_ingestion.opendota_client import OpenDotaClient
 from worker.data_ingestion.sync_logging import SyncCounters, write_sync_log
 
 
 ROSTER_SOURCE = "opendota_history"
 REPORT_PATH = Path(ML_ARTIFACT_DIR) / "roster_history_enrichment_report.json"
-CACHE_DIR = Path(ML_ARTIFACT_DIR) / "source_cache" / "opendota_matches"
+CACHE_DIR = DEFAULT_CACHE_DIR
 
 
 @dataclass(frozen=True)
@@ -76,6 +81,10 @@ def enrich_roster_history(
     cache_only: bool = False,
     merge_only: bool = False,
     refresh_cache: bool = False,
+    external_sources: set[str] | None = None,
+    external_ids: list[str] | None = None,
+    recent_first: bool = False,
+    detail_cache_dir: str | Path | None = None,
     client: OpenDotaClient | None = None,
     artifact_path: str | Path | None = REPORT_PATH,
 ) -> dict[str, Any]:
@@ -91,11 +100,12 @@ def enrich_roster_history(
     fetched = 0
     incomplete_rosters = 0
     try:
+        source_scope = sorted(external_sources or {"csv_import"})
         statement = select(Match).options(selectinload(Match.team_a), selectinload(Match.team_b)).where(
             Match.status == "finished",
             Match.winner_team_id.is_not(None),
             Match.is_tier1_match.is_(True),
-            Match.external_source == "csv_import",
+            Match.external_source.in_(source_scope),
             Match.dataset_profile == "historical_training",
             Match.verification_status == "verified",
             Match.source_confidence.in_(["high", "medium"]),
@@ -104,14 +114,21 @@ def enrich_roster_history(
         )
         if tournament:
             statement = statement.where(Match.tournament_name.ilike(f"%{tournament.strip()}%"))
+        if external_ids is not None:
+            statement = statement.where(Match.external_id.in_(list(dict.fromkeys(external_ids))))
         if start_date:
             statement = statement.where(Match.start_time >= start_date)
         if end_date:
             statement = statement.where(Match.start_time < end_date)
+        order = (
+            (Match.start_time.desc(), Match.id.desc())
+            if recent_first
+            else (Match.start_time.asc(), Match.id.asc())
+        )
         matches = list(
             db.scalars(
                 statement
-                .order_by(Match.start_time.asc(), Match.id.asc())
+                .order_by(*order)
                 .limit(max(1, min(int(limit), 2000)))
             ).all()
         )
@@ -122,6 +139,7 @@ def enrich_roster_history(
                 match.external_id or "",
                 refresh_cache=refresh_cache,
                 cache_only=cache_only,
+                cache_dir=detail_cache_dir,
             )
             cache_hits += int(from_cache)
             fetched += int(raw is not None and not from_cache)
@@ -210,6 +228,9 @@ def enrich_roster_history(
                 "tournament": tournament,
                 "start_date": start_date.isoformat() if start_date else None,
                 "end_date": end_date.isoformat() if end_date else None,
+                "external_sources": source_scope,
+                "external_ids_count": len(external_ids) if external_ids is not None else None,
+                "recent_first": recent_first,
             },
             "cache_only": cache_only,
             "merge_only": merge_only,
@@ -227,6 +248,7 @@ def enrich_roster_history(
             "roster_rows_updated": roster_rows_updated,
             "roster_rows_invalidated": result.get("roster_rows_invalidated", 0) if apply and segments else 0,
             "roster_rows_truncated": result.get("roster_rows_truncated", 0) if apply and segments else 0,
+            "roster_rows_merged": result.get("roster_rows_merged", 0) if apply and segments else 0,
             "max_gap_days": max_gap_days,
             "source": "opendota_match_details",
             "roster_source": ROSTER_SOURCE,
@@ -332,6 +354,7 @@ def apply_roster_segments(
     )
     roster_rows_invalidated = 0
     roster_rows_truncated = 0
+    roster_rows_merged = 0
     if not merge_only:
         for row in existing_rows:
             action = _replacement_action(
@@ -348,6 +371,13 @@ def apply_roster_segments(
             else:
                 row.end_date = row.start_date
                 roster_rows_invalidated += 1
+    else:
+        (
+            segments,
+            roster_rows_truncated,
+            roster_rows_invalidated,
+            roster_rows_merged,
+        ) = _merge_incremental_segments(db, segments, existing_rows)
 
     players_created = 0
     roster_rows_created = 0
@@ -403,7 +433,83 @@ def apply_roster_segments(
         "roster_rows_updated": roster_rows_updated,
         "roster_rows_invalidated": roster_rows_invalidated,
         "roster_rows_truncated": roster_rows_truncated,
+        "roster_rows_merged": roster_rows_merged,
     }
+
+
+def _merge_incremental_segments(
+    db,
+    segments: list[RosterSegment],
+    existing_rows: list[TeamRoster],
+) -> tuple[list[RosterSegment], int, int, int]:
+    grouped: dict[tuple[int, datetime, datetime | None], list[TeamRoster]] = {}
+    for row in existing_rows:
+        if row.start_date is None:
+            continue
+        key = (row.team_id, _aware(row.start_date), _aware(row.end_date) if row.end_date else None)
+        grouped.setdefault(key, []).append(row)
+
+    existing_segments: dict[int, list[tuple[datetime, datetime, tuple[str, ...], list[TeamRoster]]]] = {}
+    for (team_id, start_date, end_date), rows in grouped.items():
+        resolved_end = end_date or datetime.max.replace(tzinfo=UTC)
+        player_ids = tuple(
+            sorted(
+                (
+                    str(player.external_id)
+                    for row in rows
+                    if (player := db.get(Player, row.player_id)) is not None and player.external_id
+                ),
+                key=lambda value: (not value.isdigit(), int(value) if value.isdigit() else value),
+            )
+        )
+        existing_segments.setdefault(team_id, []).append((start_date, resolved_end, player_ids, rows))
+
+    pending: list[RosterSegment] = []
+    truncated = 0
+    invalidated = 0
+    merged = 0
+    for segment in sorted(segments, key=lambda item: (item.team_id, item.start_date, item.end_date)):
+        incoming_ids = _player_ids(segment.players)
+        incoming_end = segment.end_date
+        merged_into_existing = False
+        for old_start, old_end, old_ids, rows in sorted(
+            existing_segments.get(segment.team_id, []), key=lambda item: item[0]
+        ):
+            if old_end <= segment.start_date or old_start >= incoming_end:
+                continue
+            if old_ids == incoming_ids:
+                extended_start = min(old_start, segment.start_date)
+                extended_end = max(old_end, incoming_end)
+                for row in rows:
+                    if _aware(row.start_date) != extended_start or row.end_date is None or _aware(row.end_date) != extended_end:
+                        row.start_date = extended_start
+                        row.end_date = extended_end
+                        merged += 1
+                merged_into_existing = True
+                break
+            if old_start < segment.start_date:
+                for row in rows:
+                    row.end_date = segment.start_date
+                    row.is_active = False
+                    truncated += 1
+            elif old_start == segment.start_date:
+                for row in rows:
+                    row.end_date = old_start
+                    row.is_active = False
+                    invalidated += 1
+            else:
+                incoming_end = min(incoming_end, old_start)
+        if not merged_into_existing and incoming_end > segment.start_date:
+            pending.append(
+                RosterSegment(
+                    team_id=segment.team_id,
+                    start_date=segment.start_date,
+                    end_date=incoming_end,
+                    players=segment.players,
+                    matches_observed=segment.matches_observed,
+                )
+            )
+    return pending, truncated, invalidated, merged
 
 
 def _replacement_action(
@@ -431,15 +537,12 @@ def _load_match_detail(
     *,
     refresh_cache: bool,
     cache_only: bool = False,
+    cache_dir: str | Path | None = None,
 ) -> tuple[dict[str, Any] | None, bool, str | None]:
-    cache_path = CACHE_DIR / f"{match_id}.json"
-    if not refresh_cache and cache_path.exists():
-        try:
-            raw = json.loads(cache_path.read_text(encoding="utf-8"))
-            if str(raw.get("match_id") or "") == str(match_id):
-                return raw, True, None
-        except (OSError, json.JSONDecodeError):
-            pass
+    if not refresh_cache:
+        raw = load_cached_match_detail(match_id, cache_dir=cache_dir)
+        if raw is not None:
+            return raw, True, None
     if cache_only:
         return None, False, "detail cache miss"
     response, _, _ = _fetch_match_detail(
@@ -450,10 +553,10 @@ def _load_match_detail(
     )
     if not response.ok or not isinstance(response.data, dict):
         return None, False, response.error or "OpenDota detail response is invalid."
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    temporary = cache_path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(response.data, sort_keys=True), encoding="utf-8")
-    temporary.replace(cache_path)
+    try:
+        write_cached_match_detail(match_id, response.data, cache_dir=cache_dir)
+    except (OSError, ValueError) as exc:
+        return None, False, f"detail cache write failed: {exc}"
     return response.data, False, None
 
 
@@ -492,6 +595,19 @@ def main() -> None:
     parser.add_argument("--refresh-cache", action="store_true")
     parser.add_argument("--cache-only", action="store_true")
     parser.add_argument(
+        "--external-source",
+        action="append",
+        dest="external_sources",
+        help="Trusted match source to include; repeat for multiple sources (default: csv_import).",
+    )
+    parser.add_argument(
+        "--external-id",
+        action="append",
+        dest="external_ids",
+        help="Exact Dota match id to include; repeat for multiple ids.",
+    )
+    parser.add_argument("--recent-first", action="store_true")
+    parser.add_argument(
         "--merge-only",
         action="store_true",
         help="Upsert derived segments without invalidating existing generated history.",
@@ -509,6 +625,9 @@ def main() -> None:
         cache_only=args.cache_only,
         merge_only=args.merge_only,
         refresh_cache=args.refresh_cache,
+        external_sources=set(args.external_sources) if args.external_sources else None,
+        external_ids=args.external_ids,
+        recent_first=args.recent_first,
     )
 
 

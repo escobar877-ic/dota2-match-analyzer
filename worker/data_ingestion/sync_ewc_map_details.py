@@ -29,6 +29,7 @@ from worker.data_ingestion.import_stratz_ids import classify_training_match
 from worker.data_ingestion.match_detail_enrichment import enrich_match_details
 from worker.data_ingestion.normalizer import NormalizedMatch, normalize_datetime
 from worker.data_ingestion.opendota_client import OpenDotaClient
+from worker.data_ingestion.roster_history_enrichment import enrich_roster_history
 from worker.data_ingestion.source_mapping import resolve_source_team, resolve_source_tournament
 from worker.data_ingestion.sync_logging import SyncCounters, write_sync_log
 
@@ -47,6 +48,7 @@ def sync_ewc_map_details(
     client: OpenDotaClient | None = None,
     artifact_path: str | Path | None = REPORT_PATH,
     enricher: Callable[..., dict[str, Any]] = enrich_match_details,
+    roster_enricher: Callable[..., dict[str, Any]] = enrich_roster_history,
 ) -> dict[str, Any]:
     started_at = datetime.now(UTC)
     client = client or OpenDotaClient()
@@ -63,6 +65,7 @@ def sync_ewc_map_details(
     would_create = 0
     would_update = 0
     enrichment: dict[str, Any] | None = None
+    roster_enrichment: dict[str, Any] | None = None
 
     try:
         response = client.get_league_matches(EWC_LEAGUE_ID)
@@ -81,6 +84,7 @@ def sync_ewc_map_details(
                 new_external_ids=[],
                 samples=[],
                 enrichment=None,
+                roster_enrichment=None,
                 artifact_path=artifact_path,
             )
 
@@ -172,6 +176,24 @@ def sync_ewc_map_details(
         except Exception as exc:
             errors.append(f"EWC detail enrichment failed: {exc.__class__.__name__}: {exc}")
 
+    if apply and valid_external_ids and not errors:
+        try:
+            roster_enrichment = roster_enricher(
+                apply=True,
+                limit=max(1, min(enrich_limit, len(valid_external_ids))),
+                sleep_seconds=0,
+                external_sources=MAP_SOURCES,
+                external_ids=valid_external_ids,
+                recent_first=True,
+                cache_only=True,
+                merge_only=True,
+                client=client,
+            )
+            if roster_enrichment.get("status") == "failed":
+                warnings.append("EWC roster cache enrichment failed; map sync remains valid and will retry next cycle.")
+        except Exception as exc:
+            warnings.append(f"EWC roster enrichment failed: {exc.__class__.__name__}: {exc}")
+
     return _finish(
         apply=apply,
         counters=counters,
@@ -185,6 +207,7 @@ def sync_ewc_map_details(
         new_external_ids=new_external_ids,
         samples=samples,
         enrichment=enrichment,
+        roster_enrichment=roster_enrichment,
         artifact_path=artifact_path,
     )
 
@@ -346,6 +369,7 @@ def _finish(
     new_external_ids: list[str],
     samples: list[dict[str, Any]],
     enrichment: dict[str, Any] | None,
+    roster_enrichment: dict[str, Any] | None,
     artifact_path: str | Path | None,
 ) -> dict[str, Any]:
     report = {
@@ -365,6 +389,7 @@ def _finish(
         "classifications": dict(classifications),
         "exclusion_reasons": dict(exclusion_reasons),
         "detail_enrichment": _enrichment_summary(enrichment),
+        "roster_enrichment": _roster_enrichment_summary(roster_enrichment),
         "errors": errors,
         "warnings": warnings,
         "samples": samples,
@@ -397,6 +422,28 @@ def _enrichment_summary(report: dict[str, Any] | None) -> dict[str, Any] | None:
             "draft_entries_created",
             "draft_entries_updated",
             "source_errors",
+        )
+    }
+
+
+def _roster_enrichment_summary(report: dict[str, Any] | None) -> dict[str, Any] | None:
+    if report is None:
+        return None
+    return {
+        key: report.get(key)
+        for key in (
+            "status",
+            "records_seen",
+            "matches_with_roster_observations",
+            "team_roster_observations",
+            "cache_hits",
+            "cache_misses",
+            "incomplete_team_rosters",
+            "roster_rows_created",
+            "roster_rows_updated",
+            "roster_rows_merged",
+            "errors",
+            "warnings",
         )
     }
 

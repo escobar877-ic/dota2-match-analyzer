@@ -142,16 +142,16 @@ def _has_roster_context(db: Session, match: Match) -> bool:
 
 
 def _team_has_roster_context(db: Session, team_id: int, at_time: datetime) -> bool:
-    return bool(
+    return (
         db.scalar(
-            select(TeamRoster.id)
+            select(func.count(func.distinct(TeamRoster.player_id)))
             .where(
                 TeamRoster.team_id == team_id,
                 TeamRoster.start_date <= at_time,
-                (TeamRoster.end_date.is_(None)) | (TeamRoster.end_date >= at_time),
+                (TeamRoster.end_date.is_(None)) | (TeamRoster.end_date > at_time),
             )
-            .limit(1)
         )
+        == 5
     )
 
 

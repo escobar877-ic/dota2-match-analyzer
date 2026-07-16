@@ -42,9 +42,9 @@ class DataCoverageTests(unittest.TestCase):
     def test_coverage_report_writes_json(self):
         team_a = self._team("Team Liquid")
         team_b = self._team("Team Spirit")
-        player_a = self._player("liquid-player")
-        player_b = self._player("spirit-player")
-        self.db.add_all([team_a, team_b, player_a, player_b])
+        players_a = [self._player(f"liquid-player-{index}") for index in range(5)]
+        players_b = [self._player(f"spirit-player-{index}") for index in range(5)]
+        self.db.add_all([team_a, team_b, *players_a, *players_b])
         self.db.flush()
         started_at = datetime(2026, 1, 10, tzinfo=timezone.utc)
         match = Match(
@@ -71,8 +71,22 @@ class DataCoverageTests(unittest.TestCase):
         self.db.add_all(
             [
                 MatchPatchContext(match_id=match.id, patch_id=patch.id, days_since_patch=9, is_current_patch=True),
-                TeamRoster(team_id=team_a.id, player_id=player_a.id, start_date=datetime(2025, 1, 1, tzinfo=timezone.utc)),
-                TeamRoster(team_id=team_b.id, player_id=player_b.id, start_date=datetime(2025, 1, 1, tzinfo=timezone.utc)),
+                *[
+                    TeamRoster(
+                        team_id=team_a.id,
+                        player_id=player.id,
+                        start_date=datetime(2025, 1, 1, tzinfo=timezone.utc),
+                    )
+                    for player in players_a
+                ],
+                *[
+                    TeamRoster(
+                        team_id=team_b.id,
+                        player_id=player.id,
+                        start_date=datetime(2025, 1, 1, tzinfo=timezone.utc),
+                    )
+                    for player in players_b
+                ],
             ]
         )
         self.db.commit()

@@ -28,6 +28,7 @@ from app.db.models import DraftSnapshot, Hero, Match, MatchDraft, Team, TeamMatc
 from app.ratings.team_identity import canonical_team_identity_name
 from ml.config import ML_ARTIFACT_DIR
 from worker.data_ingestion.db import get_session
+from worker.data_ingestion.opendota_detail_cache import write_cached_match_detail
 from worker.data_ingestion.opendota_client import OpenDotaClient
 from worker.data_ingestion.sync_logging import SyncCounters, write_sync_log
 
@@ -49,6 +50,7 @@ def enrich_match_details(
     force: bool = False,
     external_sources: set[str] | None = None,
     external_ids: list[str] | None = None,
+    detail_cache_dir: str | Path | None = None,
     client: OpenDotaClient | None = None,
     artifact_path: str | Path | None = REPORT_PATH,
 ) -> dict[str, Any]:
@@ -61,6 +63,7 @@ def enrich_match_details(
     exclusion_reasons: Counter[str] = Counter()
     samples: list[dict[str, Any]] = []
     details_fetched = 0
+    details_cached = 0
     skipped_existing = 0
     rate_limit_retries_used = 0
     would_enrich = 0
@@ -151,6 +154,15 @@ def enrich_match_details(
                 if index < len(matches) - 1 and sleep_seconds > 0:
                     time.sleep(sleep_seconds)
                 continue
+            try:
+                write_cached_match_detail(
+                    match.external_id,
+                    raw,
+                    cache_dir=detail_cache_dir,
+                )
+                details_cached += 1
+            except (OSError, ValueError) as exc:
+                warnings.append(f"match_id={match.external_id}: detail cache write failed: {exc}")
             if not draft:
                 warnings.append(f"match_id={match.external_id}: draft unavailable; stats can still be enriched")
 
@@ -183,6 +195,7 @@ def enrich_match_details(
                 error_message="; ".join(source_errors[:20]) if source_errors else None,
                 metadata_json={
                     "details_fetched": details_fetched,
+                    "details_cached": details_cached,
                     "skipped_existing": skipped_existing,
                     "rate_limit_retries_used": rate_limit_retries_used,
                     "stats_rows_created": stats_rows_created,
@@ -213,6 +226,7 @@ def enrich_match_details(
             },
             "records_seen": counters.records_seen,
             "details_fetched": details_fetched,
+            "details_cached": details_cached,
             "would_enrich": would_enrich if not apply else 0,
             "matches_enriched": counters.records_updated if apply else 0,
             "records_excluded": counters.records_excluded,
@@ -598,6 +612,18 @@ def main() -> None:
     parser.add_argument("--sleep", type=float, default=1.0)
     parser.add_argument("--rate-limit-retries", type=int, default=2)
     parser.add_argument("--rate-limit-backoff", type=float, default=30.0)
+    parser.add_argument(
+        "--external-source",
+        action="append",
+        dest="external_sources",
+        help="Trusted match source to include; repeat for multiple sources (default: csv_import).",
+    )
+    parser.add_argument(
+        "--external-id",
+        action="append",
+        dest="external_ids",
+        help="Exact Dota match id to enrich; repeat for multiple ids.",
+    )
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
@@ -611,6 +637,8 @@ def main() -> None:
         rate_limit_retries=max(0, args.rate_limit_retries),
         rate_limit_backoff_seconds=max(1.0, args.rate_limit_backoff),
         force=args.force,
+        external_sources=set(args.external_sources) if args.external_sources else None,
+        external_ids=args.external_ids,
     )
 
 

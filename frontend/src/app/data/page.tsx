@@ -635,7 +635,7 @@ export default async function DataPage() {
                 <article className="info-tile">
                   <span>Roster coverage</span>
                   <strong>{formatPercent(coverage.roster_coverage_ratio)}</strong>
-                  <small>{coverage.matches_with_roster_context_count} matches with roster context</small>
+                  <small>{coverage.matches_with_roster_context_count} matches with complete 5v5 roster context</small>
                 </article>
               </div>
               <p>

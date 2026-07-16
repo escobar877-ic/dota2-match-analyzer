@@ -51,6 +51,27 @@ class FakeEnricher:
         }
 
 
+class FakeRosterEnricher:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def __call__(self, **kwargs) -> dict:
+        self.calls.append(kwargs)
+        return {
+            "status": "ok",
+            "records_seen": 1,
+            "matches_with_roster_observations": 1,
+            "team_roster_observations": 2,
+            "cache_hits": 1,
+            "cache_misses": 0,
+            "incomplete_team_rosters": 0,
+            "roster_rows_created": 10,
+            "roster_rows_updated": 0,
+            "errors": [],
+            "warnings": [],
+        }
+
+
 class SyncEwcMapDetailsTests(unittest.TestCase):
     def setUp(self) -> None:
         engine = create_engine("sqlite:///:memory:")
@@ -73,8 +94,9 @@ class SyncEwcMapDetailsTests(unittest.TestCase):
 
     def test_apply_creates_verified_map_and_calls_enrichment(self):
         enricher = FakeEnricher()
+        roster_enricher = FakeRosterEnricher()
 
-        report = self._run(apply=True, enricher=enricher)
+        report = self._run(apply=True, enricher=enricher, roster_enricher=roster_enricher)
 
         match = self.db.query(Match).one()
         self.assertEqual(report["records_created"], 1)
@@ -82,6 +104,10 @@ class SyncEwcMapDetailsTests(unittest.TestCase):
         self.assertTrue(match.is_training_eligible)
         self.assertEqual(match.verification_status, "verified")
         self.assertEqual(enricher.calls[0]["external_ids"], ["8899999001"])
+        self.assertEqual(roster_enricher.calls[0]["external_ids"], ["8899999001"])
+        self.assertTrue(roster_enricher.calls[0]["cache_only"])
+        self.assertTrue(roster_enricher.calls[0]["merge_only"])
+        self.assertEqual(report["roster_enrichment"]["cache_hits"], 1)
         self.assertEqual(self.db.query(DataSyncLog).count(), 1)
 
     def test_existing_csv_map_is_updated_without_cross_source_duplicate(self):
@@ -140,6 +166,7 @@ class SyncEwcMapDetailsTests(unittest.TestCase):
         apply: bool,
         client: FakeClient | None = None,
         enricher=None,
+        roster_enricher=None,
     ) -> dict:
         output = Path(self.temp_dir.name) / "ewc.json"
         with patch("worker.data_ingestion.sync_ewc_map_details.get_session", return_value=self.db):
@@ -148,6 +175,7 @@ class SyncEwcMapDetailsTests(unittest.TestCase):
                 client=client or FakeClient(),
                 artifact_path=output,
                 enricher=enricher or FakeEnricher(),
+                roster_enricher=roster_enricher or FakeRosterEnricher(),
                 sleep_seconds=0,
             )
 

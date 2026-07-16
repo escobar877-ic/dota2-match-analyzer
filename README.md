@@ -609,7 +609,7 @@ bash scripts/sync_ewc_map_details.sh --limit 300
 bash scripts/sync_ewc_map_details.sh --apply --limit 300
 ```
 
-The command requires manual team/tournament mappings from `config/source_mappings.json`, rejects unmapped or non-Tier-1 records, deduplicates existing CSV/OpenDota map IDs, and enriches only missing map stats and drafts. It never starts training or promotion.
+The command requires manual team/tournament mappings from `config/source_mappings.json`, rejects unmapped or non-Tier-1 records, deduplicates existing CSV/OpenDota map IDs, and enriches only missing map stats and drafts. Valid OpenDota details are also written atomically to the shared roster cache; the scheduler reuses that cache to extend leakage-safe roster history without a second API request. It never starts training or promotion.
 
 ## Draft-aware experiment foundation
 
@@ -1031,7 +1031,10 @@ bash scripts/enrich_roster_history.sh \
 
 Partial date windows replace only overlapping generated roster intervals. Older
 history is preserved. `--cache-only --merge-only` can rebuild known segments
-from the local source cache without network access or invalidating other rows.
+from the local source cache without network access or invalidating unrelated
+rows. Incremental merges extend an identical five-player roster and softly
+close an overlapping old interval when a changed roster is observed. Coverage
+counts a match only when both teams have exactly five unique players at kickoff.
 
 The generated roster interval starts one second after the observed match, so a
 match never receives player identities learned from its own post-match payload.
