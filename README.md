@@ -594,10 +594,22 @@ Draft features are experimental and can be inspected separately:
 
 ```bash
 docker compose run --rm backend python -m app.heroes.hero_service --sync-config
+docker compose run --rm worker python -m worker.data_ingestion.sync_hero_constants --apply
 docker compose run --rm worker python -m ml.features.draft_features --match-id MATCH_ID
 ```
 
 Hero comfort, patch hero win rate, and draft synergy features require real Tier 1 draft history before they can support real accuracy claims. A later draft-aware model or ensemble component can be built on this foundation.
+
+OpenDota hero constants replace placeholder labels such as `Hero 53` with the current localized hero name. The forecast scheduler refreshes these constants without changing training or model promotion.
+
+For EWC 2026, verified finished maps can be synchronized directly from trusted OpenDota league ID `19785`:
+
+```bash
+bash scripts/sync_ewc_map_details.sh --limit 300
+bash scripts/sync_ewc_map_details.sh --apply --limit 300
+```
+
+The command requires manual team/tournament mappings from `config/source_mappings.json`, rejects unmapped or non-Tier-1 records, deduplicates existing CSV/OpenDota map IDs, and enriches only missing map stats and drafts. It never starts training or promotion.
 
 ## Draft-aware experiment foundation
 

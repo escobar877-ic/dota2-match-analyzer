@@ -26,6 +26,8 @@ from app.prediction.prospective_decision import refresh_prospective_decision
 from app.prediction.forecast_tracker import settle_forecasts, snapshot_upcoming_forecasts
 from worker.data_ingestion.sync_tracked_results import sync_tracked_results
 from worker.data_ingestion.sync_ewc_matches import sync_ewc_matches
+from worker.data_ingestion.sync_ewc_map_details import sync_ewc_map_details
+from worker.data_ingestion.sync_hero_constants import sync_hero_constants
 from worker.data_ingestion.sync_live_match_context import sync_live_match_context
 from worker.data_ingestion.sync_upcoming_matches import sync_upcoming_matches
 from worker.data_ingestion.sync_upcoming_rosters import sync_upcoming_rosters
@@ -46,6 +48,16 @@ def run_prediction_refresh(
         (
             "ewc_schedule",
             lambda: sync_ewc_matches(apply=True, limit=300),
+        ),
+        ("hero_constants", lambda: sync_hero_constants(apply=True)),
+        (
+            "ewc_map_details",
+            lambda: sync_ewc_map_details(
+                apply=True,
+                limit=300,
+                enrich_limit=20,
+                sleep_seconds=0.5,
+            ),
         ),
         (
             "upcoming_schedule",
@@ -151,6 +163,8 @@ def _summarize_step(result: dict[str, Any]) -> dict[str, Any]:
         "preserved_started_matches",
         "matched_live_matches",
         "drafts_available",
+        "placeholders_replaced",
+        "valid_tier1_maps",
         "competition_counts",
         "status_counts",
         "teams_seen",

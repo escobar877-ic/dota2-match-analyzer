@@ -47,6 +47,8 @@ def enrich_match_details(
     rate_limit_retries: int = 2,
     rate_limit_backoff_seconds: float = 30.0,
     force: bool = False,
+    external_sources: set[str] | None = None,
+    external_ids: list[str] | None = None,
     client: OpenDotaClient | None = None,
     artifact_path: str | Path | None = REPORT_PATH,
 ) -> dict[str, Any]:
@@ -70,11 +72,12 @@ def enrich_match_details(
     draft_snapshots_updated = 0
 
     try:
+        source_scope = sorted(external_sources or {"csv_import"})
         statement = (
             select(Match)
             .options(selectinload(Match.team_a), selectinload(Match.team_b))
             .where(
-                Match.external_source == "csv_import",
+                Match.external_source.in_(source_scope),
                 Match.dataset_profile == "historical_training",
                 Match.status == "finished",
                 Match.verification_status == "verified",
@@ -82,6 +85,8 @@ def enrich_match_details(
                 Match.external_id.is_not(None),
             )
         )
+        if external_ids is not None:
+            statement = statement.where(Match.external_id.in_(list(dict.fromkeys(external_ids))))
         if team:
             pattern = f"%{team.strip()}%"
             statement = statement.where(
@@ -200,7 +205,12 @@ def enrich_match_details(
             "mode": "apply" if apply else "dry_run",
             "source": "opendota",
             "scope": "verified_historical_match_details",
-            "filters": {"team": team, "tournament": tournament},
+            "filters": {
+                "team": team,
+                "tournament": tournament,
+                "external_sources": source_scope,
+                "external_ids_count": len(external_ids) if external_ids is not None else None,
+            },
             "records_seen": counters.records_seen,
             "details_fetched": details_fetched,
             "would_enrich": would_enrich if not apply else 0,

@@ -153,6 +153,26 @@ class MatchDetailEnrichmentTests(unittest.TestCase):
         self.assertEqual(result["records_seen"], 0)
         self.assertEqual(client.calls, 0)
 
+    def test_explicit_opendota_source_scope_is_supported(self):
+        self.match.external_source = "opendota"
+        self.team_a.external_source = "opendota"
+        self.team_b.external_source = "opendota"
+        self.db.commit()
+        client = FakeOpenDotaClient()
+        with patch("worker.data_ingestion.match_detail_enrichment.get_session", return_value=self.db):
+            result = enrich_match_details(
+                apply=False,
+                limit=10,
+                sleep_seconds=0,
+                external_sources={"opendota"},
+                external_ids=[self.match.external_id],
+                client=client,
+                artifact_path=None,
+            )
+
+        self.assertEqual(result["records_seen"], 1)
+        self.assertEqual(result["would_enrich"], 1)
+
     def test_rate_limit_response_is_retried_with_backoff(self):
         client = SequenceOpenDotaClient(
             [

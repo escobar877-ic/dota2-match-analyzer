@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -22,9 +23,18 @@ def load_hero_config(path: str | Path = HERO_CONFIG_PATH) -> list[dict]:
 
 
 def sync_heroes_from_config(db: Session, path: str | Path = HERO_CONFIG_PATH) -> dict[str, int]:
+    return sync_heroes_from_records(db, load_hero_config(path))
+
+
+def sync_heroes_from_records(
+    db: Session,
+    records: list[dict[str, Any]],
+    *,
+    commit: bool = True,
+) -> dict[str, int]:
     created = 0
     updated = 0
-    for item in load_hero_config(path):
+    for item in records:
         external_hero_id = int(item["hero_id"])
         hero = db.scalar(select(Hero).where(Hero.hero_id == external_hero_id))
         if hero is None:
@@ -32,13 +42,28 @@ def sync_heroes_from_config(db: Session, path: str | Path = HERO_CONFIG_PATH) ->
             db.add(hero)
             created += 1
         else:
-            updated += 1
+            incoming = (
+                item["name"],
+                item["localized_name"],
+                item.get("primary_attr"),
+                item.get("roles") or item.get("roles_json") or [],
+                bool(item.get("is_active", True)),
+            )
+            current = (
+                hero.name,
+                hero.localized_name,
+                hero.primary_attr,
+                hero.roles_json or [],
+                hero.is_active,
+            )
+            updated += int(current != incoming)
         hero.name = item["name"]
         hero.localized_name = item["localized_name"]
         hero.primary_attr = item.get("primary_attr")
         hero.roles_json = item.get("roles") or item.get("roles_json") or []
         hero.is_active = bool(item.get("is_active", True))
-    db.commit()
+    if commit:
+        db.commit()
     return {"created": created, "updated": updated}
 
 
