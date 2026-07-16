@@ -40,6 +40,7 @@ from worker.data_ingestion.sync_logging import SyncCounters, write_sync_log
 
 
 REPORT_PATH = Path(ML_ARTIFACT_DIR) / "stratz_ids_import_report.json"
+DOTA_MATCH_ID_SOURCES = {"csv_import", "opendota", "stratz"}
 TRUSTED_OPENDOTA_LEAGUE_IDS = {
     "18324", "16935", "15728", "16881", "15475", "18375", "15439", "16201",
     "17765", "18111", "18988", "17509", "17795", "18058", "18358", "19543",
@@ -106,6 +107,7 @@ def import_stratz_ids(
     samples: list[dict[str, Any]] = []
     would_create = 0
     would_update = 0
+    cross_source_updates = 0
     detail_sources: Counter[str] = Counter()
     exclusion_reasons: Counter[str] = Counter()
     excluded_samples: list[dict[str, Any]] = []
@@ -191,16 +193,16 @@ def import_stratz_ids(
                     )
                 continue
 
-            existing = db.scalar(
-                select(Match).where(
-                    Match.external_source == match.external_source,
-                    Match.external_id == match_id,
-                )
-            )
+            existing = _find_existing_dota_match(db, match)
             would_update += int(existing is not None)
             would_create += int(existing is None)
+            if existing is not None and existing.external_source != match.external_source:
+                cross_source_updates += 1
             if not apply:
                 continue
+
+            if existing is not None and existing.external_source != match.external_source:
+                match = replace(match, external_source=existing.external_source)
 
             db_match, created = upsert_match(
                 db,
@@ -241,6 +243,7 @@ def import_stratz_ids(
                     "classifications": dict(classifications),
                     "training_profile": "tier1_plus_verified_pro",
                     "detail_sources": dict(detail_sources),
+                    "cross_source_updates": cross_source_updates,
                 },
             )
             db.commit()
@@ -259,6 +262,7 @@ def import_stratz_ids(
             "excluded_count": counters.records_excluded,
             "would_create": would_create,
             "would_update": would_update,
+            "cross_source_updates": cross_source_updates,
             "records_created": counters.records_created,
             "records_updated": counters.records_updated,
             "safe_to_apply": valid_count > 0,
@@ -345,6 +349,28 @@ def normalized_match_from_trusted_league_csv(
         raw_team_b_id=team_b_id,
         raw_tournament=(row.get("tournament_name") or "").strip(),
         raw_tournament_id=league_id,
+    )
+
+
+def _find_existing_dota_match(db: Any, match: NormalizedMatch) -> Match | None:
+    if not match.external_id:
+        return None
+    existing = db.scalar(
+        select(Match).where(
+            Match.external_source == match.external_source,
+            Match.external_id == match.external_id,
+        )
+    )
+    if existing is not None or match.external_source not in DOTA_MATCH_ID_SOURCES:
+        return existing
+    return db.scalar(
+        select(Match)
+        .where(
+            Match.external_source.in_(DOTA_MATCH_ID_SOURCES),
+            Match.external_id == match.external_id,
+        )
+        .order_by(Match.id.asc())
+        .limit(1)
     )
 
 

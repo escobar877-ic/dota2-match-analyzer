@@ -48,6 +48,7 @@ def enrich_match_details(
     rate_limit_retries: int = 2,
     rate_limit_backoff_seconds: float = 30.0,
     force: bool = False,
+    tier1_only: bool = False,
     external_sources: set[str] | None = None,
     external_ids: list[str] | None = None,
     detail_cache_dir: str | Path | None = None,
@@ -90,6 +91,8 @@ def enrich_match_details(
         )
         if external_ids is not None:
             statement = statement.where(Match.external_id.in_(list(dict.fromkeys(external_ids))))
+        if tier1_only:
+            statement = statement.where(Match.is_tier1_match.is_(True))
         if team:
             pattern = f"%{team.strip()}%"
             statement = statement.where(
@@ -223,6 +226,7 @@ def enrich_match_details(
                 "tournament": tournament,
                 "external_sources": source_scope,
                 "external_ids_count": len(external_ids) if external_ids is not None else None,
+                "tier1_only": tier1_only,
             },
             "records_seen": counters.records_seen,
             "details_fetched": details_fetched,
@@ -626,6 +630,11 @@ def main() -> None:
     )
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument(
+        "--tier1-only",
+        action="store_true",
+        help="Enrich only strict Tier 1 matches; verified-pro rows remain untouched.",
+    )
     args = parser.parse_args()
     enrich_match_details(
         apply=args.apply,
@@ -637,6 +646,7 @@ def main() -> None:
         rate_limit_retries=max(0, args.rate_limit_retries),
         rate_limit_backoff_seconds=max(1.0, args.rate_limit_backoff),
         force=args.force,
+        tier1_only=args.tier1_only,
         external_sources=set(args.external_sources) if args.external_sources else None,
         external_ids=args.external_ids,
     )

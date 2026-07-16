@@ -183,6 +183,41 @@ class MatchDetailEnrichmentTests(unittest.TestCase):
         self.assertEqual(result["records_seen"], 1)
         self.assertEqual(result["would_enrich"], 1)
 
+    def test_tier1_only_excludes_verified_pro_rows(self):
+        verified_pro = Match(
+            external_source="csv_import",
+            external_id="654321",
+            team_a_id=self.team_a_id,
+            team_b_id=self.team_b_id,
+            tournament_name="The International",
+            start_time=datetime(2025, 12, 1, tzinfo=timezone.utc),
+            status="finished",
+            winner_team_id=self.team_a_id,
+            is_tier1_match=False,
+            dataset_profile="historical_training",
+            competition_tier="pro",
+            verification_status="verified",
+            source_confidence="high",
+            is_training_eligible=True,
+        )
+        self.db.add(verified_pro)
+        self.db.commit()
+        client = FakeOpenDotaClient()
+        with patch("worker.data_ingestion.match_detail_enrichment.get_session", return_value=self.db):
+            result = enrich_match_details(
+                apply=False,
+                limit=10,
+                sleep_seconds=0,
+                tier1_only=True,
+                client=client,
+                artifact_path=None,
+                detail_cache_dir=Path(self.temp_dir.name) / "detail-cache",
+            )
+
+        self.assertEqual(result["records_seen"], 1)
+        self.assertEqual(result["filters"]["tier1_only"], True)
+        self.assertEqual(client.calls, 1)
+
     def test_rate_limit_response_is_retried_with_backoff(self):
         client = SequenceOpenDotaClient(
             [

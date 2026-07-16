@@ -15,7 +15,14 @@ if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 
 from app.database import Base
-from app.patches.patch_service import calculate_days_since_patch, get_current_patch, get_patch_for_match, sync_patches_from_config
+from app.db.models import Match, MatchPatchContext, Team
+from app.patches.patch_service import (
+    backfill_match_patch_contexts,
+    calculate_days_since_patch,
+    get_current_patch,
+    get_patch_for_match,
+    sync_patches_from_config,
+)
 
 
 class PatchServiceTests(unittest.TestCase):
@@ -61,6 +68,31 @@ class PatchServiceTests(unittest.TestCase):
             self.assertIsNone(get_patch_for_match(empty_db, datetime(2026, 1, 1, tzinfo=timezone.utc)))
         finally:
             empty_db.close()
+
+    def test_backfill_creates_and_then_updates_context_idempotently(self):
+        team_a = Team(name="Team Liquid", external_source="test", external_id="1")
+        team_b = Team(name="Team Spirit", external_source="test", external_id="2")
+        self.db.add_all([team_a, team_b])
+        self.db.flush()
+        match = Match(
+            external_source="test",
+            external_id="100",
+            team_a_id=team_a.id,
+            team_b_id=team_b.id,
+            tournament_name="The International",
+            start_time=datetime(2026, 1, 15, tzinfo=timezone.utc),
+            status="finished",
+        )
+        self.db.add(match)
+        self.db.commit()
+
+        first = backfill_match_patch_contexts(self.db)
+        second = backfill_match_patch_contexts(self.db)
+
+        self.assertEqual(first, {"created": 1, "updated": 0, "skipped": 0})
+        self.assertEqual(second, {"created": 0, "updated": 1, "skipped": 0})
+        self.assertEqual(self.db.query(MatchPatchContext).count(), 1)
+        self.assertEqual(self.db.query(MatchPatchContext).one().patch.patch_version, "7.39")
 
 
 if __name__ == "__main__":

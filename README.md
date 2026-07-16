@@ -498,6 +498,14 @@ Patches are loaded from `config/dota_patches.json`:
 docker compose run --rm backend python -m app.patches.patch_service --sync-config
 ```
 
+After adding older verified matches, synchronize the patch timeline and
+idempotently backfill missing or stale match contexts:
+
+```bash
+docker compose run --rm backend \
+  python -m app.patches.patch_service --sync-config --backfill-context
+```
+
 The patch list is maintained manually from Valve's Dota patch datafeed. The current local timeline includes patch `7.41d` (released 2026-06-04); update and re-sync the config when Valve publishes a newer gameplay patch.
 
 Synthetic dev seed creates roster and patch data for local testing. It must not be used for real accuracy claims.
@@ -974,6 +982,23 @@ compatible with the guarded match-ID detail importer:
 bash scripts/import_stratz_ids.sh data/real/real_match_ids_800_1000.csv
 ```
 
+To refresh the full trusted-league archive without the 1,000-row cap, write a
+separate file and review the importer dry-run before applying it:
+
+```bash
+python3 scripts/build_real_match_ids_dataset.py \
+  --limit 5000 \
+  --min-matches 1000 \
+  --output data/real/all_trusted_league_matches.csv
+bash scripts/import_stratz_ids.sh data/real/all_trusted_league_matches.csv
+bash scripts/import_stratz_ids.sh data/real/all_trusted_league_matches.csv --apply
+```
+
+The importer treats numeric Dota match IDs from CSV, OpenDota, and STRATZ as a
+shared identity, so a trusted cross-source refresh updates an existing map
+instead of creating a duplicate. PandaScore IDs are not assumed to share that
+namespace. Academy and unknown teams remain excluded.
+
 ### Enrich verified historical matches
 
 After verified historical match IDs are imported, fetch OpenDota match details
@@ -999,6 +1024,20 @@ use bounded backoff and are retried without duplicating completed rows:
 
 ```bash
 bash scripts/enrich_match_details.sh --offset 200 --limit 200 --sleep 1.5 --apply
+```
+
+Use `--tier1-only` to spend OpenDota rate limit only on the strict production
+dataset while leaving the separately labeled verified-pro training rows
+untouched:
+
+```bash
+bash scripts/enrich_match_details.sh \
+  --tier1-only \
+  --external-source csv_import \
+  --external-source opendota \
+  --limit 1000 \
+  --sleep 1 \
+  --apply
 ```
 
 When real strict Tier 1 results exist, Elo/Glicko recalculation excludes

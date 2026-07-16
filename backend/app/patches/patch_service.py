@@ -76,6 +76,39 @@ def sync_patches_from_config(db: Session | None = None, path: Path | None = None
             db.close()
 
 
+def backfill_match_patch_contexts(db: Session | None = None) -> dict[str, int]:
+    owns_session = db is None
+    db = db or SessionLocal()
+    created = 0
+    updated = 0
+    skipped = 0
+    try:
+        matches = list(
+            db.scalars(
+                select(Match)
+                .where(Match.start_time.is_not(None))
+                .order_by(Match.id.asc())
+            )
+        )
+        existing_match_ids = set(db.scalars(select(MatchPatchContext.match_id)))
+        for match in matches:
+            context = upsert_match_patch_context(db, match)
+            if context is None:
+                skipped += 1
+            elif match.id in existing_match_ids:
+                updated += 1
+            else:
+                created += 1
+        db.commit()
+        return {"created": created, "updated": updated, "skipped": skipped}
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        if owns_session:
+            db.close()
+
+
 def get_patch_for_match(db: Session, match_start_time: datetime | None) -> DotaPatch | None:
     if match_start_time is None:
         return get_current_patch(db)
@@ -136,10 +169,17 @@ def _normalize_datetime(value: datetime) -> datetime:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--sync-config", action="store_true")
+    parser.add_argument("--backfill-context", action="store_true")
     args = parser.parse_args()
     if args.sync_config:
         result = sync_patches_from_config()
         print(f"Patch config sync complete: created={result['created']}, updated={result['updated']}")
+    if args.backfill_context:
+        result = backfill_match_patch_contexts()
+        print(
+            "Patch context backfill complete: "
+            f"created={result['created']}, updated={result['updated']}, skipped={result['skipped']}"
+        )
 
 
 if __name__ == "__main__":

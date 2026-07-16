@@ -4,8 +4,10 @@ import tempfile
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import MagicMock
 
 from worker.data_ingestion.import_stratz_ids import (
+    _find_existing_dota_match,
     classify_training_match,
     normalized_match_from_trusted_league_csv,
     read_match_ids,
@@ -113,6 +115,30 @@ class ImportStratzIdsTests(unittest.TestCase):
         self.assertEqual(match.tournament_name, "Esports World Cup")
         self.assertEqual(match.team_b_name, "PARIVISION")
         self.assertEqual(match.winner_team_external_id, "9824702")
+
+    def test_finds_same_dota_match_id_across_trusted_detail_sources(self):
+        db = MagicMock()
+        existing = MagicMock(external_source="opendota", external_id="123")
+        db.scalar.side_effect = [None, existing]
+
+        result = _find_existing_dota_match(
+            db,
+            self._match("Team Liquid", "Team Spirit", "The International"),
+        )
+
+        self.assertIs(result, existing)
+        self.assertEqual(db.scalar.call_count, 2)
+
+    def test_does_not_cross_match_pandascore_external_ids(self):
+        db = MagicMock()
+        db.scalar.return_value = None
+        match = self._match("Team Liquid", "Team Spirit", "The International")
+        match = NormalizedMatch(**{**match.__dict__, "external_source": "pandascore"})
+
+        result = _find_existing_dota_match(db, match)
+
+        self.assertIsNone(result)
+        self.assertEqual(db.scalar.call_count, 1)
 
     @staticmethod
     def _match(team_a: str, team_b: str, tournament: str) -> NormalizedMatch:
