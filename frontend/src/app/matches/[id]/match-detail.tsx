@@ -328,13 +328,18 @@ function MatchResultPanel({
       {snapshot ? (
         <>
           <div className="context-grid">
-            <InfoTile label="Captured horizon" value={snapshot.horizon_bucket.replaceAll("_", " ")} />
+            <InfoTile
+              label="Captured horizon"
+              value={(snapshot.evaluated_horizon ?? snapshot.horizon_bucket).replaceAll("_", " ")}
+            />
             <InfoTile label={match.team_a.name} value={`${Math.round(snapshot.team_a_probability * 100)}%`} />
             <InfoTile label={match.team_b.name} value={`${Math.round(snapshot.team_b_probability * 100)}%`} />
             <InfoTile label="Forecast result" value={snapshot.correct === null ? snapshot.status : snapshot.correct ? "Correct" : "Incorrect"} />
           </div>
           <p className="confidence-line">
-            Captured {formatMatchDate(snapshot.generated_at)} with {snapshot.lead_time_hours.toFixed(1)} hours lead time.
+            Captured {formatMatchDate(snapshot.generated_at)} with {(
+              snapshot.actual_lead_time_hours ?? snapshot.lead_time_hours
+            ).toFixed(1)} hours lead time.
           </p>
         </>
       ) : (

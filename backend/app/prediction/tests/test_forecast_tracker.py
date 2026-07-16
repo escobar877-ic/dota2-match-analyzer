@@ -265,7 +265,10 @@ class ForecastTrackerTests(unittest.TestCase):
                 correct=True,
             )
             preview.prediction_type = "verified_pro_preview"
+            preview.evaluation_scope = "verified_pro_preview"
             preview.actual_outcome = "team_b"
+            preview.scheduled_start = preview_match.start_time
+            preview.generated_at = preview_match.start_time - timedelta(hours=1)
             db.add_all([early, final, preview])
             db.commit()
 
@@ -298,7 +301,9 @@ class ForecastTrackerTests(unittest.TestCase):
         now = datetime(2026, 1, 1, 10, tzinfo=timezone.utc)
         try:
             match = self._upcoming_match(db, now + timedelta(hours=1))
-            db.add(self._forecast(match.id, "early", 100, log_loss=1.0, correct=False))
+            existing = self._forecast(match.id, "early", 100, log_loss=1.0, correct=False)
+            existing.status = "pending"
+            db.add(existing)
             db.commit()
 
             report = build_forecast_gap_report(db, now=now, artifact_path=None, refresh_report_path=None)
@@ -318,6 +323,8 @@ class ForecastTrackerTests(unittest.TestCase):
             match = self._upcoming_match(db, now + timedelta(hours=1))
             forecast = self._forecast(match.id, "final", 1, log_loss=0.2, correct=True)
             forecast.scheduled_start = match.start_time
+            forecast.generated_at = match.start_time - timedelta(hours=1)
+            forecast.status = "pending"
             db.add(forecast)
             db.commit()
 
@@ -364,6 +371,7 @@ class ForecastTrackerTests(unittest.TestCase):
             match = self._upcoming_match(db, now + timedelta(hours=10))
             forecast = self._forecast(match.id, "day_before", 10, log_loss=0.2, correct=True)
             forecast.scheduled_start = match.start_time - timedelta(hours=2)
+            forecast.status = "pending"
             db.add(forecast)
             db.commit()
 
@@ -466,6 +474,125 @@ class ForecastTrackerTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_metrics_deduplicate_schedule_revisions_per_match_and_horizon(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        db = Session(engine)
+        try:
+            match = self._finished_tracked_match(
+                db,
+                datetime(2026, 1, 2, tzinfo=timezone.utc),
+            )
+            older = self._forecast(match.id, "day_before", 8, log_loss=1.1, correct=False)
+            newer = self._forecast(match.id, "day_before", 6, log_loss=0.3, correct=True)
+            older.scheduled_start = older.scheduled_start - timedelta(hours=2)
+            db.add_all([older, newer])
+            db.commit()
+
+            report = build_prospective_report(db)
+
+            self.assertEqual(report["raw_settled_forecasts"], 2)
+            self.assertEqual(report["settled_forecasts"], 1)
+            self.assertEqual(report["by_horizon"]["day_before"]["settled"], 1)
+            self.assertEqual(report["all_horizons_metrics"]["log_loss"], 0.3)
+        finally:
+            db.close()
+
+    def test_metrics_use_actual_start_to_reclassify_forecast_horizon(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        db = Session(engine)
+        try:
+            actual_start = datetime(2026, 1, 2, tzinfo=timezone.utc)
+            match = self._finished_tracked_match(db, actual_start)
+            forecast = self._forecast(match.id, "day_before", 1, log_loss=0.2, correct=True)
+            forecast.horizon_bucket = "day_before"
+            db.add(forecast)
+            db.commit()
+
+            report = build_prospective_report(db)
+
+            self.assertEqual(report["by_horizon"]["final"]["settled"], 1)
+            self.assertEqual(report["by_horizon"]["day_before"]["settled"], 0)
+            self.assertEqual(report["primary_settled_forecasts"], 1)
+        finally:
+            db.close()
+
+    def test_settlement_voids_forecast_generated_after_actual_start(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        now = datetime(2026, 1, 2, 10, tzinfo=timezone.utc)
+        db = Session(engine)
+        try:
+            match = self._finished_tracked_match(db, now - timedelta(hours=1))
+            forecast = self._forecast(match.id, "final", 1, log_loss=0.2, correct=True)
+            forecast.generated_at = now
+            forecast.status = "pending"
+            db.add(forecast)
+            db.commit()
+            forecast_id = forecast.id
+        finally:
+            db.close()
+
+        report = settle_forecasts(
+            now=now + timedelta(hours=1),
+            db_factory=lambda: Session(engine),
+            report_writer=lambda _report: None,
+        )
+
+        self.assertEqual(report["settled_now"], 0)
+        self.assertEqual(report["voided_now"], 1)
+        db = Session(engine)
+        try:
+            stored = db.get(PredictionForecast, forecast_id)
+            self.assertEqual(stored.status, "void")
+            self.assertIn("after actual match start", stored.guard_reasons_json[-1])
+        finally:
+            db.close()
+
+    def test_preview_snapshot_does_not_satisfy_strict_gap_check(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        db = Session(engine)
+        now = datetime(2026, 1, 1, 10, tzinfo=timezone.utc)
+        try:
+            match = self._upcoming_match(db, now + timedelta(hours=1))
+            preview = self._forecast(match.id, "final", 1, log_loss=0.2, correct=True)
+            preview.status = "pending"
+            preview.prediction_type = "verified_pro_preview"
+            preview.evaluation_scope = "verified_pro_preview"
+            preview.scheduled_start = match.start_time
+            db.add(preview)
+            db.commit()
+
+            report = build_forecast_gap_report(db, now=now, artifact_path=None, refresh_report_path=None)
+
+            self.assertEqual(report["summary"]["missing_final_snapshots"], 1)
+            self.assertEqual(report["checks"]["final_horizon_snapshots"], "failed")
+        finally:
+            db.close()
+
+    def test_preview_final_does_not_fill_historical_strict_final_gap(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        db = Session(engine)
+        now = datetime(2026, 1, 3, 10, tzinfo=timezone.utc)
+        try:
+            match = self._finished_tracked_match(db, now - timedelta(hours=3))
+            strict_early = self._forecast(match.id, "early", 48, log_loss=0.4, correct=True)
+            preview_final = self._forecast(match.id, "final", 1, log_loss=0.2, correct=True)
+            preview_final.prediction_type = "verified_pro_preview"
+            preview_final.evaluation_scope = "verified_pro_preview"
+            db.add_all([strict_early, preview_final])
+            db.commit()
+
+            report = build_forecast_gap_report(db, now=now, artifact_path=None, refresh_report_path=None)
+
+            self.assertEqual(report["summary"]["tracked_finished_matches"], 1)
+            self.assertEqual(report["summary"]["historical_missing_final_snapshots"], 1)
+        finally:
+            db.close()
+
     def test_gap_report_finds_settlement_gap(self):
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(engine)
@@ -533,13 +660,14 @@ class ForecastTrackerTests(unittest.TestCase):
         log_loss: float,
         correct: bool,
     ) -> PredictionForecast:
-        timestamp = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        scheduled_start = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        generated_at = scheduled_start - timedelta(hours=lead_hours)
         return PredictionForecast(
             match_id=match_id,
             horizon_bucket=horizon,
             is_primary=horizon == "final",
-            generated_at=timestamp,
-            scheduled_start=datetime(2026, 1, 2, tzinfo=timezone.utc),
+            generated_at=generated_at,
+            scheduled_start=scheduled_start,
             lead_time_hours=lead_hours,
             prediction_type="ensemble",
             model_version="test",
@@ -553,7 +681,7 @@ class ForecastTrackerTests(unittest.TestCase):
             log_loss=log_loss,
             brier_score=0.2,
             correct=correct,
-            settled_at=timestamp,
+            settled_at=scheduled_start,
         )
 
     @staticmethod

@@ -166,6 +166,9 @@ export default async function ModelsPage() {
             <InfoTile label="Final Brier" value={formatMetric(prospective?.metrics.brier_score)} />
             <InfoTile label="Final capture" value={formatPercent(prospective?.coverage?.final_capture_rate)} />
             <InfoTile label="Minimum sample" value={`${prospective?.coverage?.minimum_final_forecasts ?? 100} finals`} />
+            <InfoTile label="Evaluated snapshots" value={String(prospective?.settled_forecasts ?? 0)} />
+            <InfoTile label="Raw snapshots" value={String(prospective?.raw_settled_forecasts ?? 0)} />
+            <InfoTile label="Voided post-start" value={String(prospective?.void_forecasts ?? 0)} />
           </div>
           <div className="model-report-grid" aria-label="Forecast horizons">
             {(["early", "day_before", "final"] as const).map((horizon) => {
@@ -176,7 +179,8 @@ export default async function ModelsPage() {
                   <strong>{horizonReport?.settled ?? 0}</strong>
                   <small>settled forecasts</small>
                   <dl>
-                    <Metric label="Pending" value={horizonReport?.pending} />
+                    <dt>Pending</dt>
+                    <dd>{horizonReport?.pending ?? 0}</dd>
                     <Metric label="Log loss" value={horizonReport?.metrics.log_loss} />
                     <Metric label="Brier" value={horizonReport?.metrics.brier_score} />
                   </dl>

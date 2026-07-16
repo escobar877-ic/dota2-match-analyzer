@@ -15,6 +15,7 @@ from app.db.models import Match, PredictionForecast
 from app.prediction.forecast_tracker import (
     HORIZON_ORDER,
     SCHEDULE_DRIFT_MINUTES,
+    evaluation_horizon_for_forecast,
     horizon_bucket_for_lead_time,
 )
 from ml.config import ML_ARTIFACT_DIR
@@ -53,7 +54,7 @@ def build_forecast_gap_report(
             .order_by(Match.start_time, Match.id)
         ).all()
     )
-    forecasts_by_match = _forecast_horizons_by_match(db, [match.id for match in upcoming_matches])
+    forecasts_by_match = _forecast_horizons_by_match(db, upcoming_matches)
     missing_snapshots = []
     for match in upcoming_matches:
         lead_time_hours = (_ensure_aware(match.start_time) - now).total_seconds() / 3600
@@ -88,7 +89,7 @@ def build_forecast_gap_report(
             f"{len(historical_final_gaps)} tracked finished match(es) missed the final forecast horizon."
         )
 
-    schedule_drift_gaps = _find_schedule_drift_gaps(db)
+    schedule_drift_gaps = _find_schedule_drift_gaps(db, upcoming_matches, now=now)
     if schedule_drift_gaps:
         warnings.append(
             f"{len(schedule_drift_gaps)} forecast horizon(s) use an outdated scheduled start."
@@ -166,17 +167,25 @@ def write_prediction_refresh_report(
         _write_json(report, Path(artifact_path))
 
 
-def _forecast_horizons_by_match(db, match_ids: list[int]) -> dict[int, set[str]]:
-    if not match_ids:
+def _forecast_horizons_by_match(db, matches: list[Match]) -> dict[int, set[str]]:
+    if not matches:
         return {}
-    rows = db.execute(
-        select(PredictionForecast.match_id, PredictionForecast.horizon_bucket).where(
-            PredictionForecast.match_id.in_(match_ids)
+    match_by_id = {match.id: match for match in matches}
+    rows = db.scalars(
+        select(PredictionForecast).where(
+            PredictionForecast.match_id.in_(match_by_id),
+            PredictionForecast.status == "pending",
+            PredictionForecast.evaluation_scope == "strict_tier1",
         )
     ).all()
     result: dict[int, set[str]] = {}
-    for match_id, horizon in rows:
-        result.setdefault(match_id, set()).add(horizon)
+    for forecast in rows:
+        match = match_by_id[forecast.match_id]
+        drift_minutes = abs(
+            (_ensure_aware(forecast.scheduled_start) - _ensure_aware(match.start_time)).total_seconds()
+        ) / 60
+        if drift_minutes <= SCHEDULE_DRIFT_MINUTES:
+            result.setdefault(forecast.match_id, set()).add(forecast.horizon_bucket)
     return result
 
 
@@ -217,33 +226,33 @@ def _find_historical_final_gaps(
     now: datetime,
     history_days: int,
 ) -> tuple[list[dict[str, Any]], int]:
-    matches = list(
+    forecasts = list(
         db.scalars(
-            select(Match)
-            .options(selectinload(Match.team_a), selectinload(Match.team_b))
-            .join(PredictionForecast, PredictionForecast.match_id == Match.id)
+            select(PredictionForecast)
+            .options(
+                selectinload(PredictionForecast.match).selectinload(Match.team_a),
+                selectinload(PredictionForecast.match).selectinload(Match.team_b),
+            )
+            .join(Match, Match.id == PredictionForecast.match_id)
             .where(
                 Match.status == "finished",
                 Match.is_tier1_match.is_(True),
                 Match.external_source == "pandascore",
                 Match.start_time >= now - timedelta(days=max(1, history_days)),
                 Match.start_time <= now,
+                PredictionForecast.evaluation_scope == "strict_tier1",
             )
-            .distinct()
-            .order_by(Match.start_time.desc(), Match.id.desc())
+            .order_by(Match.start_time.desc(), PredictionForecast.generated_at.desc())
         ).all()
     )
-    if not matches:
+    if not forecasts:
         return [], 0
-    final_match_ids = set(
-        db.scalars(
-            select(PredictionForecast.match_id).where(
-                PredictionForecast.match_id.in_([match.id for match in matches]),
-                PredictionForecast.horizon_bucket == "final",
-                PredictionForecast.is_primary.is_(True),
-            )
-        ).all()
-    )
+    matches = {forecast.match_id: forecast.match for forecast in forecasts}
+    final_match_ids = {
+        forecast.match_id
+        for forecast in forecasts
+        if evaluation_horizon_for_forecast(forecast) == "final"
+    }
     gaps = [
         {
             "match_id": match.id,
@@ -253,13 +262,21 @@ def _find_historical_final_gaps(
             "start_time": _iso(match.start_time),
             "reason": "No primary final forecast was recorded within two hours of match start.",
         }
-        for match in matches
+        for match in matches.values()
         if match.id not in final_match_ids
     ]
     return gaps, len(matches)
 
 
-def _find_schedule_drift_gaps(db) -> list[dict[str, Any]]:
+def _find_schedule_drift_gaps(
+    db,
+    matches: list[Match],
+    *,
+    now: datetime,
+) -> list[dict[str, Any]]:
+    if not matches:
+        return []
+    match_by_id = {match.id: match for match in matches}
     forecasts = list(
         db.scalars(
             select(PredictionForecast)
@@ -267,18 +284,29 @@ def _find_schedule_drift_gaps(db) -> list[dict[str, Any]]:
                 selectinload(PredictionForecast.match).selectinload(Match.team_a),
                 selectinload(PredictionForecast.match).selectinload(Match.team_b),
             )
-            .join(Match, Match.id == PredictionForecast.match_id)
-            .where(Match.start_time.is_not(None))
+            .where(
+                PredictionForecast.match_id.in_(match_by_id),
+                PredictionForecast.status == "pending",
+                PredictionForecast.evaluation_scope == "strict_tier1",
+            )
             .order_by(PredictionForecast.generated_at.desc())
         ).all()
     )
-    grouped: dict[tuple[int, str], list[PredictionForecast]] = {}
+    grouped: dict[int, list[PredictionForecast]] = {}
     for forecast in forecasts:
-        grouped.setdefault((forecast.match_id, forecast.horizon_bucket), []).append(forecast)
+        grouped.setdefault(forecast.match_id, []).append(forecast)
 
     gaps = []
-    for (match_id, horizon), rows in grouped.items():
-        current_start = _ensure_aware(rows[0].match.start_time)
+    for match_id, rows in grouped.items():
+        match = match_by_id[match_id]
+        current_start = _ensure_aware(match.start_time)
+        lead_time_hours = (current_start - now).total_seconds() / 3600
+        horizon = horizon_bucket_for_lead_time(lead_time_hours)
+        if horizon is None:
+            continue
+        rows = [row for row in rows if row.horizon_bucket == horizon]
+        if not rows:
+            continue
         if any(
             abs((_ensure_aware(row.scheduled_start) - current_start).total_seconds()) / 60
             <= SCHEDULE_DRIFT_MINUTES
@@ -293,7 +321,7 @@ def _find_schedule_drift_gaps(db) -> list[dict[str, Any]]:
             {
                 "match_id": match_id,
                 "horizon_bucket": horizon,
-                "teams": _teams_label(newest.match),
+                "teams": _teams_label(match),
                 "forecast_scheduled_start": _iso(newest.scheduled_start),
                 "current_scheduled_start": _iso(current_start),
                 "drift_minutes": round(drift_minutes, 1),

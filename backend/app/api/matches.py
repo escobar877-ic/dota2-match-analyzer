@@ -12,6 +12,7 @@ from app.db.models import Match, PredictionForecast, Team
 from app.drafts.draft_service import draft_to_dict
 from app.drafts.live_draft_context import load_live_match_context, live_context_to_draft_response
 from app.prediction.prediction_service import build_match_prediction
+from app.prediction.forecast_tracker import horizon_bucket_for_lead_time
 from app.prediction.schemas import FormulaPredictionResponse
 from app.prediction.verified_pro_preview import (
     build_verified_pro_preview as _build_verified_pro_preview,
@@ -403,15 +404,28 @@ def get_match_forecast_history(match_id: int, db: Session = Depends(get_db)) -> 
             ).all()
         )
     )
-    rows = [
-        {
+    rows = []
+    for forecast in forecasts:
+        actual_lead_time_hours = (
+            (_as_aware(match.start_time) - _as_aware(forecast.generated_at)).total_seconds() / 3600
+            if match.start_time and forecast.generated_at
+            else None
+        )
+        rows.append({
             "id": forecast.id,
             "horizon_bucket": forecast.horizon_bucket,
+            "evaluated_horizon": (
+                horizon_bucket_for_lead_time(actual_lead_time_hours)
+                if actual_lead_time_hours is not None
+                else None
+            ),
             "is_primary": forecast.is_primary,
             "generated_at": forecast.generated_at,
             "scheduled_start": forecast.scheduled_start,
             "lead_time_hours": forecast.lead_time_hours,
+            "actual_lead_time_hours": actual_lead_time_hours,
             "prediction_type": forecast.prediction_type,
+            "evaluation_scope": forecast.evaluation_scope,
             "model_version": forecast.model_version,
             "team_a_probability": forecast.team_a_probability,
             "team_b_probability": forecast.team_b_probability,
@@ -422,10 +436,20 @@ def get_match_forecast_history(match_id: int, db: Session = Depends(get_db)) -> 
             "correct": forecast.correct,
             "log_loss": forecast.log_loss,
             "brier_score": forecast.brier_score,
-        }
-        for forecast in forecasts
-    ]
-    preferred = next((row for row in rows if row["is_primary"]), rows[0] if rows else None)
+        })
+    preferred = next(
+        (
+            row
+            for row in rows
+            if row["status"] == "settled"
+            and row["evaluated_horizon"] == "final"
+            and row["evaluation_scope"] == "strict_tier1"
+        ),
+        next(
+            (row for row in rows if row["status"] == "settled" and row["evaluated_horizon"] == "final"),
+            next((row for row in rows if row["is_primary"]), rows[0] if rows else None),
+        ),
+    )
     actual_outcome = (
         "draw"
         if match.is_draw
@@ -451,6 +475,10 @@ def get_match_forecast_history(match_id: int, db: Session = Depends(get_db)) -> 
         "preferred_snapshot": preferred,
         "forecasts": rows,
     }
+
+
+def _as_aware(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
 @router.get("/{match_id}/context")

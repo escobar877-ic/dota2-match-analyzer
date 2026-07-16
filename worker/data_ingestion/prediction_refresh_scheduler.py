@@ -148,6 +148,7 @@ def _summarize_step(result: dict[str, Any]) -> dict[str, Any]:
         "records_updated",
         "records_excluded",
         "prediction_eligible_count",
+        "preserved_started_matches",
         "matched_live_matches",
         "drafts_available",
         "competition_counts",

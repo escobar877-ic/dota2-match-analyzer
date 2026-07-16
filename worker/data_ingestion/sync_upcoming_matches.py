@@ -65,6 +65,7 @@ def sync_upcoming_matches(
     would_update = 0
     upcoming_count = 0
     saved_upcoming_candidates = 0
+    preserved_started_matches = 0
     prediction_eligible_count = 0
     source_prediction_eligible_count = 0
     prediction_blocked_count = 0
@@ -101,6 +102,11 @@ def sync_upcoming_matches(
                     hard_exclusion_reasons.update(hard_reasons)
                     continue
 
+                existing = _existing_match(db, match)
+                if existing is not None and existing.status in {"live", "finished"}:
+                    preserved_started_matches += 1
+                    continue
+
                 upcoming_count += 1
                 missing_team_count += int(missing_teams)
                 missing_tournament_count += int(missing_tournament)
@@ -120,7 +126,6 @@ def sync_upcoming_matches(
                     )
                 _append_sample(sample_upcoming, match, classification, limit=10)
 
-                existing = _existing_match(db, match)
                 saved_upcoming_candidates += 1
                 if dry_run:
                     would_update += int(existing is not None)
@@ -136,7 +141,12 @@ def sync_upcoming_matches(
                 counters.records_updated += int(not was_created)
 
         valid_rows = would_create + would_update if dry_run else counters.records_created + counters.records_updated
-        apply_allowed, apply_block_reason = _apply_status(source_can_connect, valid_rows, source_errors)
+        apply_allowed, apply_block_reason = _apply_status(
+            source_can_connect,
+            valid_rows,
+            source_errors,
+            preserved_started_matches=preserved_started_matches,
+        )
         if not dry_run and not apply_allowed:
             db.rollback()
             source_errors.append(f"apply blocked: {apply_block_reason}")
@@ -176,6 +186,7 @@ def sync_upcoming_matches(
             "records_excluded": counters.records_excluded,
             "upcoming_count": upcoming_count,
             "saved_upcoming_candidates": saved_upcoming_candidates,
+            "preserved_started_matches": preserved_started_matches,
             "truly_invalid_count": counters.records_excluded,
             "tier1_upcoming_count": competition_counts["tier1"],
             "pro_upcoming_count": competition_counts["pro"],
@@ -196,7 +207,11 @@ def sync_upcoming_matches(
             "sample_prediction_blocked": sample_prediction_blocked,
             "apply_allowed": apply_allowed,
             "apply_block_reason": apply_block_reason,
-            "recommendation": _recommendation(source_errors, valid_rows),
+            "recommendation": _recommendation(
+                source_errors,
+                valid_rows,
+                preserved_started_matches=preserved_started_matches,
+            ),
             "is_training_eligible": False,
         }
         _write_report(report, artifact_path)
@@ -392,19 +407,32 @@ def _append_sample(
     )
 
 
-def _apply_status(source_can_connect: bool, valid_rows: int, source_errors: list[str]) -> tuple[bool, str | None]:
+def _apply_status(
+    source_can_connect: bool,
+    valid_rows: int,
+    source_errors: list[str],
+    *,
+    preserved_started_matches: int = 0,
+) -> tuple[bool, str | None]:
     if not source_can_connect:
         return False, "Source health check failed."
     if source_errors:
         return False, "Source errors must be resolved before apply."
-    if valid_rows <= 0:
+    if valid_rows <= 0 and preserved_started_matches <= 0:
         return False, "No valid upcoming candidates found."
     return True, None
 
 
-def _recommendation(source_errors: list[str], valid_rows: int) -> str:
+def _recommendation(
+    source_errors: list[str],
+    valid_rows: int,
+    *,
+    preserved_started_matches: int = 0,
+) -> str:
     if source_errors:
         return "review_source_errors"
+    if valid_rows <= 0 and preserved_started_matches > 0:
+        return "started_matches_preserved_no_upcoming_changes"
     if valid_rows <= 0:
         return "no_valid_upcoming_candidates"
     return "review_dry_run_then_apply_with_explicit_flag"

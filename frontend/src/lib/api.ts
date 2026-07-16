@@ -77,11 +77,14 @@ export type MatchDetail = Match & {
 export type MatchForecastSnapshot = {
   id: number;
   horizon_bucket: "early" | "day_before" | "final" | string;
+  evaluated_horizon: "early" | "day_before" | "final" | null;
   is_primary: boolean;
   generated_at: string;
   scheduled_start: string;
   lead_time_hours: number;
+  actual_lead_time_hours: number | null;
   prediction_type: string;
+  evaluation_scope: "strict_tier1" | "verified_pro_preview" | string;
   model_version: string;
   team_a_probability: number;
   team_b_probability: number;
@@ -364,6 +367,9 @@ export type ProspectiveAccuracyReport = {
   total_matches?: number;
   pending_forecasts: number;
   settled_forecasts: number;
+  raw_pending_forecasts?: number;
+  raw_settled_forecasts?: number;
+  void_forecasts?: number;
   primary_horizon?: "final";
   primary_pending_forecasts?: number;
   primary_settled_forecasts?: number;
@@ -417,6 +423,9 @@ export type ProspectiveAccuracyReport = {
     total_forecasts: number;
     pending_forecasts: number;
     settled_forecasts: number;
+    raw_pending_forecasts?: number;
+    raw_settled_forecasts?: number;
+    void_forecasts?: number;
     primary_pending_forecasts: number;
     primary_settled_forecasts: number;
     metrics: ProspectiveMetricSummary;

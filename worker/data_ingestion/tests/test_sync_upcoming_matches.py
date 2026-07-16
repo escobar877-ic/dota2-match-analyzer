@@ -170,6 +170,27 @@ class SyncUpcomingMatchesTests(unittest.TestCase):
         self.assertFalse(match.is_training_eligible)
         self.assertFalse(match.is_prediction_eligible)
 
+    def test_apply_does_not_downgrade_finished_match_from_stale_upcoming_feed(self):
+        first = self._sync(apply=True, records=[_raw_upcoming()])
+        self.assertEqual(first["records_created"], 1)
+        match = self.db.query(Match).one()
+        original_start = match.start_time
+        match.status = "finished"
+        match.winner_team_id = match.team_a_id
+        self.db.commit()
+
+        stale = _raw_upcoming()
+        stale["begin_at"] = "2026-07-02T12:00:00+00:00"
+        second = self._sync(apply=True, records=[stale])
+
+        match = self.db.query(Match).one()
+        self.assertEqual(second["preserved_started_matches"], 1)
+        self.assertEqual(second["records_updated"], 0)
+        self.assertTrue(second["apply_allowed"])
+        self.assertEqual(match.status, "finished")
+        self.assertEqual(match.start_time, original_start)
+        self.assertEqual(match.winner_team_id, match.team_a_id)
+
     def test_source_error_no_crash_and_apply_blocked(self):
         report = self._sync(apply=False, records=[], ok=False)
 

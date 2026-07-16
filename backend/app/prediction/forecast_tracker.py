@@ -192,12 +192,22 @@ def settle_forecasts(
             .where(PredictionForecast.status == "pending")
         ).all()
         settled = 0
+        voided = 0
         for forecast in forecasts:
             match = forecast.match
             if match.status != "finished":
                 continue
             actual = _actual_outcome(match)
             if actual is None:
+                continue
+            if _ensure_aware(forecast.generated_at) >= _ensure_aware(match.start_time):
+                forecast.status = "void"
+                forecast.guard_reasons_json = [
+                    *(forecast.guard_reasons_json or []),
+                    "Forecast generated after actual match start; excluded from prospective metrics.",
+                ]
+                forecast.settled_at = current_time
+                voided += 1
                 continue
             metrics = score_outcome(forecast.predicted_outcomes_json, actual)
             forecast.status = "settled"
@@ -210,7 +220,12 @@ def settle_forecasts(
         db.commit()
         report = build_prospective_report(db)
         (report_writer or _write_report)(report)
-        return {"status": "ok", "settled_now": settled, "report": report}
+        return {
+            "status": "warning" if voided else "ok",
+            "settled_now": settled,
+            "voided_now": voided,
+            "report": report,
+        }
     finally:
         db.close()
 
@@ -252,35 +267,28 @@ def build_prospective_report(db) -> dict[str, Any]:
     preview_forecasts = [
         forecast
         for forecast in all_scope_forecasts
-        if forecast.prediction_type == "verified_pro_preview"
+        if _forecast_evaluation_scope(forecast) == "verified_pro_preview"
     ]
     forecasts = [
         forecast
         for forecast in all_scope_forecasts
-        if forecast.prediction_type != "verified_pro_preview"
+        if _forecast_evaluation_scope(forecast) == "strict_tier1"
     ]
-    settled = [forecast for forecast in forecasts if forecast.status == "settled"]
-    final_forecasts = [
-        forecast
-        for forecast in forecasts
-        if forecast.horizon_bucket == "final" and forecast.is_primary
-    ]
-    final_settled = [forecast for forecast in final_forecasts if forecast.status == "settled"]
+    settled_by_horizon, pending_by_horizon = _evaluation_forecasts_by_horizon(forecasts)
+    settled = _flatten_horizons(settled_by_horizon)
+    pending = _flatten_horizons(pending_by_horizon)
+    final_settled = settled_by_horizon["final"]
+    final_pending = pending_by_horizon["final"]
     by_confidence: dict[str, list[PredictionForecast]] = defaultdict(list)
     for forecast in final_settled:
         by_confidence[forecast.confidence_label].append(forecast)
     by_horizon = {}
     for horizon in HORIZON_ORDER:
-        rows = [
-            forecast
-            for forecast in forecasts
-            if forecast.horizon_bucket == horizon
-            and (horizon != "final" or forecast.is_primary)
-        ]
-        settled_rows = [forecast for forecast in rows if forecast.status == "settled"]
+        settled_rows = settled_by_horizon[horizon]
+        pending_rows = pending_by_horizon[horizon]
         by_horizon[horizon] = {
-            "total": len(rows),
-            "pending": sum(forecast.status == "pending" for forecast in rows),
+            "total": len(settled_rows) + len(pending_rows),
+            "pending": len(pending_rows),
             "settled": len(settled_rows),
             "metrics": _aggregate_metrics(settled_rows),
             "component_metrics": _component_metrics(settled_rows),
@@ -300,16 +308,18 @@ def build_prospective_report(db) -> dict[str, Any]:
         "total_forecasts": len(forecasts),
         "all_scopes_total_forecasts": len(all_scope_forecasts),
         "total_matches": len({forecast.match_id for forecast in forecasts}),
-        "pending_forecasts": sum(forecast.status == "pending" for forecast in forecasts),
+        "pending_forecasts": len(pending),
         "settled_forecasts": len(settled),
+        "raw_pending_forecasts": sum(forecast.status == "pending" for forecast in forecasts),
+        "raw_settled_forecasts": sum(forecast.status == "settled" for forecast in forecasts),
+        "void_forecasts": sum(forecast.status == "void" for forecast in forecasts),
         "superseded_final_forecasts": sum(
-            forecast.horizon_bucket == "final" and not forecast.is_primary
+            evaluation_horizon_for_forecast(forecast) == "final"
             for forecast in forecasts
-        ),
+            if forecast.status == "settled"
+        ) - len(final_settled),
         "primary_horizon": "final",
-        "primary_pending_forecasts": sum(
-            forecast.status == "pending" for forecast in final_forecasts
-        ),
+        "primary_pending_forecasts": len(final_pending),
         "primary_settled_forecasts": len(final_settled),
         "metrics": _aggregate_metrics(final_settled),
         "all_horizons_metrics": _aggregate_metrics(settled),
@@ -353,25 +363,18 @@ def build_prospective_report(db) -> dict[str, Any]:
 def _build_preview_prospective_report(
     forecasts: list[PredictionForecast],
 ) -> dict[str, Any]:
-    settled = [forecast for forecast in forecasts if forecast.status == "settled"]
-    final_forecasts = [
-        forecast
-        for forecast in forecasts
-        if forecast.horizon_bucket == "final" and forecast.is_primary
-    ]
-    final_settled = [forecast for forecast in final_forecasts if forecast.status == "settled"]
+    settled_by_horizon, pending_by_horizon = _evaluation_forecasts_by_horizon(forecasts)
+    settled = _flatten_horizons(settled_by_horizon)
+    pending = _flatten_horizons(pending_by_horizon)
+    final_settled = settled_by_horizon["final"]
+    final_pending = pending_by_horizon["final"]
     by_horizon: dict[str, Any] = {}
     for horizon in HORIZON_ORDER:
-        rows = [
-            forecast
-            for forecast in forecasts
-            if forecast.horizon_bucket == horizon
-            and (horizon != "final" or forecast.is_primary)
-        ]
-        settled_rows = [forecast for forecast in rows if forecast.status == "settled"]
+        settled_rows = settled_by_horizon[horizon]
+        pending_rows = pending_by_horizon[horizon]
         by_horizon[horizon] = {
-            "total": len(rows),
-            "pending": sum(forecast.status == "pending" for forecast in rows),
+            "total": len(settled_rows) + len(pending_rows),
+            "pending": len(pending_rows),
             "settled": len(settled_rows),
             "metrics": _aggregate_metrics(settled_rows),
             "component_metrics": _component_metrics(settled_rows),
@@ -389,11 +392,12 @@ def _build_preview_prospective_report(
         "used_for_training": False,
         "used_for_promotion": False,
         "total_forecasts": len(forecasts),
-        "pending_forecasts": sum(forecast.status == "pending" for forecast in forecasts),
+        "pending_forecasts": len(pending),
         "settled_forecasts": len(settled),
-        "primary_pending_forecasts": sum(
-            forecast.status == "pending" for forecast in final_forecasts
-        ),
+        "raw_pending_forecasts": sum(forecast.status == "pending" for forecast in forecasts),
+        "raw_settled_forecasts": sum(forecast.status == "settled" for forecast in forecasts),
+        "void_forecasts": sum(forecast.status == "void" for forecast in forecasts),
+        "primary_pending_forecasts": len(final_pending),
         "primary_settled_forecasts": len(final_settled),
         "metrics": _aggregate_metrics(final_settled),
         "all_horizons_metrics": _aggregate_metrics(settled),
@@ -417,6 +421,64 @@ def _build_preview_prospective_report(
             else "Verified-pro preview metrics are preliminary and never replace strict Tier 1 metrics."
         ),
     }
+
+
+def evaluation_horizon_for_forecast(forecast: PredictionForecast) -> str | None:
+    if forecast.match is None or forecast.match.start_time is None:
+        return forecast.horizon_bucket if forecast.horizon_bucket in HORIZON_ORDER else None
+    lead_time_hours = (
+        _ensure_aware(forecast.match.start_time) - _ensure_aware(forecast.generated_at)
+    ).total_seconds() / 3600
+    return horizon_bucket_for_lead_time(lead_time_hours)
+
+
+def _evaluation_forecasts_by_horizon(
+    forecasts: list[PredictionForecast],
+) -> tuple[dict[str, list[PredictionForecast]], dict[str, list[PredictionForecast]]]:
+    settled: dict[tuple[int, str], PredictionForecast] = {}
+    pending: dict[tuple[int, str], PredictionForecast] = {}
+    for forecast in forecasts:
+        if forecast.status == "settled":
+            horizon = evaluation_horizon_for_forecast(forecast)
+            target = settled
+        elif forecast.status == "pending":
+            horizon = forecast.horizon_bucket if forecast.horizon_bucket in HORIZON_ORDER else None
+            target = pending
+        else:
+            continue
+        if horizon is None:
+            continue
+        key = (forecast.match_id, horizon)
+        current = target.get(key)
+        if current is None or _forecast_order_key(forecast) > _forecast_order_key(current):
+            target[key] = forecast
+
+    return (
+        {
+            horizon: sorted(
+                (row for (match_id, bucket), row in settled.items() if bucket == horizon),
+                key=_forecast_order_key,
+            )
+            for horizon in HORIZON_ORDER
+        },
+        {
+            horizon: sorted(
+                (row for (match_id, bucket), row in pending.items() if bucket == horizon),
+                key=_forecast_order_key,
+            )
+            for horizon in HORIZON_ORDER
+        },
+    )
+
+
+def _flatten_horizons(
+    rows_by_horizon: dict[str, list[PredictionForecast]],
+) -> list[PredictionForecast]:
+    return [row for horizon in HORIZON_ORDER for row in rows_by_horizon[horizon]]
+
+
+def _forecast_order_key(forecast: PredictionForecast) -> tuple[datetime, int]:
+    return (_ensure_aware(forecast.generated_at), int(forecast.id or 0))
 
 
 def _aggregate_metrics(rows: list[PredictionForecast]) -> dict[str, float | int | None]:

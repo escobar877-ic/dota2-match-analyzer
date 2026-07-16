@@ -1054,6 +1054,13 @@ verified as Tier 1 after an earlier preview was captured, the scheduler creates
 a new immutable `strict_tier1` snapshot without rewriting or hiding the original
 `verified_pro_preview` evidence.
 
+Schedule revisions remain stored as raw evidence, while accuracy metrics use
+one latest snapshot per match and actual-time horizon. Horizons are recalculated
+from `generated_at` to the final recorded match start, so a moved schedule cannot
+inflate the sample. Any snapshot generated after the actual start is voided and
+excluded. The broad upcoming sync also preserves existing `live` and `finished`
+rows instead of downgrading them from a stale schedule response.
+
 The scheduler also writes
 `ml/artifacts/prospective_decision_report.json`. The decision remains
 `collecting` until at least 100 primary final forecasts exist, final-snapshot

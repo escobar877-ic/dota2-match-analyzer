@@ -173,6 +173,9 @@ class MatchesTier1ApiTests(unittest.TestCase):
         self.assertEqual(response["winner_team_name"], "Team Liquid")
         self.assertEqual(response["actual_outcome"], "team_a")
         self.assertEqual(response["preferred_snapshot"]["horizon_bucket"], "final")
+        self.assertEqual(response["preferred_snapshot"]["evaluated_horizon"], "final")
+        self.assertEqual(response["preferred_snapshot"]["actual_lead_time_hours"], 1.0)
+        self.assertEqual(response["preferred_snapshot"]["evaluation_scope"], "strict_tier1")
         self.assertEqual(response["preferred_snapshot"]["team_a_probability"], 0.61)
 
 
