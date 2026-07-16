@@ -36,6 +36,7 @@ REAL_INGESTION_PLAN_PATH = Path("ml/artifacts/real_ingestion_plan.json")
 IMPORT_QUALITY_REPORT_PATH = Path("ml/artifacts/import_quality_report.json")
 REAL_BATCH_REPORT_PATH = Path("ml/artifacts/real_batch_pipeline_report.json")
 SOURCE_HEALTH_REPORT_PATH = Path("ml/artifacts/source_health_report.json")
+PATCH_FRESHNESS_REPORT_PATH = Path("ml/artifacts/patch_freshness_report.json")
 HISTORICAL_FETCH_PLAN_PATH = Path("ml/artifacts/historical_fetch_plan.json")
 HISTORICAL_SYNC_REPORT_PATH = Path("ml/artifacts/historical_sync_report.json")
 SYNC_REVIEW_REPORT_PATH = Path("ml/artifacts/sync_review_report.json")
@@ -215,6 +216,16 @@ def get_real_batch_report() -> dict:
 def get_source_health() -> dict:
     return with_db_error_handling(
         lambda: _read_report_or_missing(SOURCE_HEALTH_REPORT_PATH, "Run python -m worker.data_ingestion.source_health")
+    )
+
+
+@router.get("/data/patch-freshness")
+def get_patch_freshness_report() -> dict:
+    return with_db_error_handling(
+        lambda: _read_report_or_missing(
+            PATCH_FRESHNESS_REPORT_PATH,
+            "Run python -m worker.data_ingestion.patch_freshness",
+        )
     )
 
 

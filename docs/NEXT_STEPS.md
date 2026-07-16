@@ -19,9 +19,10 @@ Keep Docker running so final-horizon snapshots are not missed.
 
 ```bash
 bash scripts/system_check.sh
+bash scripts/patch_freshness.sh
 ```
 
-Review `/upcoming`, `/models`, and `/data`. Do not loosen Tier 1 filtering merely to increase the number of predictions.
+The check also refreshes patch-family freshness. Review `/upcoming`, `/models`, and `/data`. Do not loosen Tier 1 filtering merely to increase the number of predictions.
 
 ## Data Maintenance
 

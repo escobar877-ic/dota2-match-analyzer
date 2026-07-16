@@ -3,6 +3,7 @@ import {
   DataSourcesStatusResponse,
   MatchDetailEnrichmentReport,
   MatchValidationReport,
+  PatchFreshnessReport,
   ProjectAuditReport,
   ImportQualityReport,
   RealBatchReport,
@@ -31,6 +32,7 @@ export default async function DataPage() {
     importQuality,
     realBatchReport,
     sourceHealth,
+    patchFreshness,
     fetchPlan,
     syncReview,
     sourceMappings,
@@ -48,6 +50,7 @@ export default async function DataPage() {
     fetchOptional<ImportQualityReport>("/data/import-quality"),
     fetchOptional<RealBatchReport>("/data/real-batch-report"),
     fetchOptional<SourceHealthReport>("/data/source-health"),
+    fetchOptional<PatchFreshnessReport>("/data/patch-freshness"),
     fetchOptional<HistoricalFetchPlan>("/data/historical-fetch-plan"),
     fetchOptional<SyncReviewReport>("/data/sync-review"),
     fetchOptional<SourceMappingStatus>("/data/source-mappings/status"),
@@ -231,6 +234,47 @@ export default async function DataPage() {
                 </article>
               ))}
             </div>
+          ) : null}
+        </section>
+
+        <section className="prediction-placeholder data-coverage-panel">
+          <p className="panel-label">Patch freshness</p>
+          <h2>{patchFreshness ? patchFreshnessStatus(patchFreshness) : "Patch check unavailable"}</h2>
+          {patchFreshness?.status === "missing" ? <p>{patchFreshness.message}</p> : null}
+          {patchFreshness && patchFreshness.status !== "missing" ? (
+            <>
+              <ReportMeta generatedAt={patchFreshness.generated_at} maxAgeHours={168} />
+              <div className="data-source-grid coverage-grid">
+                <article className="info-tile">
+                  <span>Configured</span>
+                  <strong>{patchFreshness.configured_current_patch ?? "unknown"}</strong>
+                  <small>{patchFreshness.configured_release_date ?? "release date missing"}</small>
+                </article>
+                <article className="info-tile">
+                  <span>Database</span>
+                  <strong>{patchFreshness.database_current_patch ?? "unknown"}</strong>
+                  <small>{patchFreshness.database_matches_config ? "matches config" : "sync required"}</small>
+                </article>
+                <article className="info-tile">
+                  <span>OpenDota family</span>
+                  <strong>{patchFreshness.latest_source_patch_family ?? "not checked"}</strong>
+                  <small>{patchFreshness.family_matches ? "family matches" : "review required"}</small>
+                </article>
+                <article className="info-tile">
+                  <span>Subpatch</span>
+                  <strong>{patchFreshness.manual_subpatch_review_required ? "Manual" : "Base only"}</strong>
+                  <small>OpenDota does not verify lettered hotfixes</small>
+                </article>
+              </div>
+              {patchFreshness.warnings?.slice(0, 3).map((warning) => (
+                <p className="prediction-warning" key={warning}>{warning}</p>
+              ))}
+              {patchFreshness.errors?.slice(0, 3).map((error) => (
+                <p className="prediction-warning" key={error}>{error}</p>
+              ))}
+              <p>{patchFreshness.recommendation}</p>
+              <p>Regenerate: bash scripts/patch_freshness.sh</p>
+            </>
           ) : null}
         </section>
 
@@ -783,6 +827,22 @@ function auditStatusLabel(value: string): string {
     return "Audit report missing";
   }
   return "Audit warning";
+}
+
+function patchFreshnessStatus(report: PatchFreshnessReport): string {
+  if (report.status === "missing") {
+    return "Patch report missing";
+  }
+  if (report.status === "failed") {
+    return "Patch check failed";
+  }
+  if (report.stale) {
+    return "Configured patch is stale";
+  }
+  if (report.status === "ok") {
+    return "Patch family is current";
+  }
+  return "Patch review required";
 }
 
 function formatAliasSuggestions(suggestions: SyncReviewReport["alias_suggestions"]): string {

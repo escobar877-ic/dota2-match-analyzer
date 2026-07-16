@@ -508,6 +508,14 @@ docker compose run --rm backend \
 
 The patch list is maintained manually from Valve's Dota patch datafeed. The current local timeline includes patch `7.41d` (released 2026-06-04); update and re-sync the config when Valve publishes a newer gameplay patch.
 
+Check the configured patch family against OpenDota and verify that the database was synced:
+
+```bash
+bash scripts/patch_freshness.sh
+```
+
+The command is read-only and writes `ml/artifacts/patch_freshness_report.json`, exposed at `GET /data/patch-freshness`. OpenDota reports base patch families such as `7.41`, not lettered hotfixes such as `7.41d`, so subpatch review remains manual.
+
 Synthetic dev seed creates roster and patch data for local testing. It must not be used for real accuracy claims.
 
 Useful commands:

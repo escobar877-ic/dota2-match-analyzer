@@ -21,6 +21,7 @@ from app.api.data_sync import (
     get_latest_sync_logs,
     get_match_detail_enrichment_report,
     get_match_validation,
+    get_patch_freshness_report,
     get_project_audit,
     get_real_batch_report,
     get_historical_fetch_plan,
@@ -162,6 +163,23 @@ class DataSyncApiTests(unittest.TestCase):
             path.write_text('{"status":"ok","sources":{}}', encoding="utf-8")
             with patch("app.api.data_sync.SOURCE_HEALTH_REPORT_PATH", path):
                 self.assertEqual(get_source_health()["status"], "ok")
+
+    def test_patch_freshness_missing_and_existing_report(self):
+        missing_path = Path(tempfile.gettempdir()) / "missing-patch-freshness-report.json"
+        if missing_path.exists():
+            missing_path.unlink()
+        with patch("app.api.data_sync.PATCH_FRESHNESS_REPORT_PATH", missing_path):
+            response = get_patch_freshness_report()
+            self.assertEqual(response["status"], "missing")
+            self.assertIn("patch_freshness", response["message"])
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "patch_freshness_report.json"
+            path.write_text('{"status":"ok","configured_current_patch":"7.41d"}', encoding="utf-8")
+            with patch("app.api.data_sync.PATCH_FRESHNESS_REPORT_PATH", path):
+                response = get_patch_freshness_report()
+
+        self.assertEqual(response["configured_current_patch"], "7.41d")
 
     def test_historical_fetch_plan_and_sync_report_work(self):
         with tempfile.TemporaryDirectory() as temp_dir:

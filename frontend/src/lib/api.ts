@@ -825,6 +825,28 @@ export type SourceHealthReport = {
   warnings?: string[];
 };
 
+export type PatchFreshnessReport = {
+  status: string;
+  message?: string;
+  generated_at?: string;
+  source?: string;
+  source_scope?: string;
+  source_checked?: boolean;
+  configured_current_patch?: string | null;
+  configured_release_date?: string | null;
+  database_current_patch?: string | null;
+  database_matches_config?: boolean | null;
+  latest_source_patch_family?: string | null;
+  latest_source_release_date?: string | null;
+  family_matches?: boolean | null;
+  stale?: boolean | null;
+  manual_subpatch_review_required?: boolean;
+  limitations?: string[];
+  warnings?: string[];
+  errors?: string[];
+  recommendation?: string;
+};
+
 export type HistoricalFetchPlan = {
   status: string;
   message?: string;
