@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { LocalDateTime } from "@/components/local-date-time";
 import { UpcomingMatchSearchResponse, fetchFromBackend } from "@/lib/api";
+import { formatPredictionGuardReasons } from "@/lib/prediction-guards";
 
 type SearchParams = {
   q?: string;
@@ -118,8 +119,18 @@ export default async function UpcomingPage({ searchParams }: { searchParams: Pro
 
         <section className="matches-grid" aria-label="Upcoming match results">
           {data?.items?.length ? (
-            data.items.map((match) => (
-              <article
+            data.items.map((match) => {
+              const decisionReasons = match.decision_status === "blocked"
+                ? formatPredictionGuardReasons(match.prediction_block_reason, {
+                    teamAName: match.team_a?.name,
+                    teamBName: match.team_b?.name,
+                    tournamentName: match.tournament,
+                    status: match.status,
+                  })
+                : (match.decision_reasons?.length
+                    ? match.decision_reasons
+                    : [match.decision_reason ?? "Open match detail for full context."]);
+              return <article
                 className={`match-card ${match.preview_eligible ? "match-card-preview" : match.prediction_eligible ? "match-card-strict" : ""}`}
                 key={match.id}
               >
@@ -172,12 +183,11 @@ export default async function UpcomingPage({ searchParams }: { searchParams: Pro
                   </p>
                 ) : null}
                 <p>
-                  Decision: <strong>{decisionLabel(match.decision_status)}</strong>.{" "}
-                  {match.decision_reason ?? "Open match detail for full context."}
+                  Decision: <strong>{decisionLabel(match.decision_status)}</strong>.
                 </p>
-                {match.decision_reasons?.length ? (
+                {decisionReasons.length ? (
                   <div className="prediction-warning">
-                    {match.decision_reasons.slice(0, 3).map((reason) => (
+                    {decisionReasons.slice(0, 3).map((reason) => (
                       <p key={reason}>{reason}</p>
                     ))}
                   </div>
@@ -203,11 +213,9 @@ export default async function UpcomingPage({ searchParams }: { searchParams: Pro
                   <Link className="analyze-button" href={`/matches/${match.id}`}>
                     Open verified preview
                   </Link>
-                ) : (
-                  <p className="prediction-warning">{match.prediction_block_reason ?? "Prediction is not available yet."}</p>
-                )}
+                ) : null}
               </article>
-            ))
+            })
           ) : (
             <section className="prediction-placeholder">
               <p>No upcoming matches found. Run PandaScore upcoming dry-run/apply after reviewing source health.</p>

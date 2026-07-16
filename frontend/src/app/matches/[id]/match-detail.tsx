@@ -22,6 +22,7 @@ import {
   formatMatchFormat,
   getTeamInitials,
 } from "@/lib/api";
+import { formatPredictionGuardReasons } from "@/lib/prediction-guards";
 
 type MatchDetailState = {
   match: MatchDetail | null;
@@ -222,9 +223,14 @@ function VerifiedProNotice({ match }: { match: MatchDetail }) {
         <p className="prediction-warning">Live context may be shown separately, but it is not used by this pre-match prediction baseline.</p>
       ) : null}
       {match.prediction_block_reason || match.excluded_reason ? (
-        <p className="confidence-line">
-          Block reason: <strong>{match.prediction_block_reason ?? match.excluded_reason}</strong>
-        </p>
+        <div className="prediction-warning">
+          {formatPredictionGuardReasons(match.prediction_block_reason ?? match.excluded_reason, {
+            teamAName: match.team_a.name,
+            teamBName: match.team_b.name,
+            tournamentName: match.tournament_name,
+            status: match.status,
+          }).map((reason) => <p key={reason}>{reason}</p>)}
+        </div>
       ) : null}
     </section>
   );
