@@ -69,6 +69,49 @@ class MatchesTier1ApiTests(unittest.TestCase):
             {self.tier1_match.id, self.excluded_match.id, self.stale_tier1_match.id},
         )
 
+    def test_list_matches_excludes_synthetic_by_default_and_supports_explicit_opt_in(self):
+        synthetic = Match(
+            external_source="dev_seed",
+            external_id="synthetic-visible-only-by-opt-in",
+            team_a_id=self.tier1_a.id,
+            team_b_id=self.tier1_b.id,
+            tournament_name="Synthetic TI",
+            start_time=datetime.now(timezone.utc) + timedelta(hours=1),
+            status="upcoming",
+            is_tier1_match=True,
+        )
+        self.db.add(synthetic)
+        self.db.commit()
+
+        self.assertNotIn(synthetic.id, [match.id for match in list_matches(db=self.db)])
+        self.assertIn(
+            synthetic.id,
+            [match.id for match in list_matches(include_synthetic=True, db=self.db)],
+        )
+
+    def test_list_matches_excludes_map_training_rows_by_default(self):
+        training_map = Match(
+            external_source="csv_import",
+            external_id="map-training-row",
+            team_a_id=self.tier1_a.id,
+            team_b_id=self.tier1_b.id,
+            tournament_name="The International",
+            start_time=datetime.now(timezone.utc) - timedelta(hours=1),
+            status="finished",
+            winner_team_id=self.tier1_a.id,
+            is_tier1_match=True,
+            dataset_profile="historical_training",
+            is_training_eligible=True,
+        )
+        self.db.add(training_map)
+        self.db.commit()
+
+        self.assertNotIn(training_map.id, [match.id for match in list_matches(db=self.db)])
+        self.assertIn(
+            training_map.id,
+            [match.id for match in list_matches(include_training_rows=True, db=self.db)],
+        )
+
     def test_list_matches_hides_stale_upcoming_and_respects_limit(self):
         stale = Match(
             team_a_id=self.tier1_a.id,

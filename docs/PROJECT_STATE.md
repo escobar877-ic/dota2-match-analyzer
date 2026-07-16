@@ -21,6 +21,12 @@ Last verified: 2026-07-16
 - Roster coverage: approximately 78.1%.
 - PandaScore schedule sync and STRATZ/OpenDota detail workflows are optional and safe without keys.
 - Tier 1 allowlists, source mappings, audits, validation, duplicate checks, and dry-run/apply guards remain enforced.
+- User-facing match and upcoming APIs exclude `dev_seed` and `demo` rows by
+  default. Development tools can opt in with `include_synthetic=true`; no
+  synthetic data is deleted or relabeled.
+- The default `/matches` view also excludes map-level `historical_training`
+  rows so a BO3/BO5 series is not duplicated by its individual training maps.
+  Research tools can opt in with `include_training_rows=true`.
 
 ## Prediction
 

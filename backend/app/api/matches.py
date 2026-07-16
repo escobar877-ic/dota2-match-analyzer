@@ -27,6 +27,7 @@ from app.rosters.roster_service import (
     get_same_roster_matches_count,
     has_recent_roster_change,
 )
+from app.ratings.team_identity import SYNTHETIC_TEAM_SOURCES
 from app.schemas.match import MatchDetail, MatchRead
 from ml.features.draft_features import build_draft_features
 
@@ -37,6 +38,8 @@ router = APIRouter(prefix="/matches", tags=["matches"])
 @router.get("", response_model=list[MatchRead])
 def list_matches(
     include_excluded: bool = False,
+    include_synthetic: bool = False,
+    include_training_rows: bool = False,
     include_stale_upcoming: bool = False,
     limit: int = 24,
     offset: int = 0,
@@ -54,6 +57,15 @@ def list_matches(
             Match.is_tier1_match.is_(True),
             Match.team_a.has(Team.is_active_tier1.is_(True)),
             Match.team_b.has(Team.is_active_tier1.is_(True)),
+        )
+    if not include_synthetic:
+        statement = statement.where(_non_synthetic_match_condition())
+    if not include_training_rows:
+        statement = statement.where(
+            or_(
+                Match.dataset_profile.is_(None),
+                Match.dataset_profile != "historical_training",
+            )
         )
     if not include_stale_upcoming:
         statement = statement.where(
@@ -84,6 +96,7 @@ def list_upcoming_matches(
     analysis_scope: str | None = None,
     include_prediction: bool = False,
     include_finished: bool = False,
+    include_synthetic: bool = False,
     limit: int = 25,
     offset: int = 0,
     db: Session = Depends(get_db),
@@ -94,6 +107,8 @@ def list_upcoming_matches(
         statuses = ["upcoming", "live", "finished"] if include_finished else ["upcoming", "live"]
         now = datetime.now(timezone.utc)
         base_conditions = [Match.status.in_(statuses)]
+        if not include_synthetic:
+            base_conditions.append(_non_synthetic_match_condition())
         if from_date is None:
             recent_finished_cutoff = now - timedelta(days=21)
             if include_finished:
@@ -185,6 +200,13 @@ def list_upcoming_matches(
         }
 
     return with_db_error_handling(load)
+
+
+def _non_synthetic_match_condition():
+    return or_(
+        Match.external_source.is_(None),
+        Match.external_source.notin_(SYNTHETIC_TEAM_SOURCES),
+    )
 
 
 def _build_upcoming_tournament_options(rows: list[tuple[str | None, str]]) -> list[dict[str, Any]]:

@@ -95,6 +95,31 @@ class UpcomingMatchesApiTests(unittest.TestCase):
         self.assertEqual(list_upcoming_matches(source="pandascore", prediction_eligible=True, db=self.db)["total"], 1)
         self.assertEqual(list_upcoming_matches(source="opendota", db=self.db)["total"], 0)
 
+    def test_upcoming_excludes_synthetic_by_default_and_supports_explicit_opt_in(self):
+        synthetic = Match(
+            external_source="dev_seed",
+            external_id="dev-upcoming",
+            team_a_id=self.liquid.id,
+            team_b_id=self.spirit.id,
+            tournament_name="Synthetic International",
+            start_time=datetime.now(timezone.utc) + timedelta(hours=2),
+            format="BO3",
+            status="upcoming",
+            is_tier1_match=True,
+        )
+        self.db.add(synthetic)
+        self.db.commit()
+
+        default_response = list_upcoming_matches(db=self.db)
+        opt_in_response = list_upcoming_matches(include_synthetic=True, db=self.db)
+
+        self.assertNotIn("dev-upcoming", [item["external_id"] for item in default_response["items"]])
+        self.assertNotIn(
+            "Synthetic International",
+            [option["name"] for option in default_response["tournament_options"]],
+        )
+        self.assertIn("dev-upcoming", [item["external_id"] for item in opt_in_response["items"]])
+
     def test_upcoming_returns_tournament_picker_options(self):
         ewc_match = Match(
             external_source="pandascore",
