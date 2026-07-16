@@ -26,7 +26,7 @@ elif not Path("/.dockerenv").exists():
 from app.database import SessionLocal
 from app.db.models import Match
 from ml.config import ML_ARTIFACT_DIR
-from worker.data_ingestion.normalizer import normalize_lookup_key
+from worker.data_ingestion.normalizer import normalize_lookup_key, normalize_team_name
 from worker.data_ingestion.opendota_client import OpenDotaClient
 
 
@@ -91,16 +91,16 @@ def _find_live_record(match: Match, records: list[Any]) -> dict[str, Any] | None
     if not match.team_a or not match.team_b:
         return None
     expected_pair = {
-        normalize_lookup_key(match.team_a.name),
-        normalize_lookup_key(match.team_b.name),
+        _team_identity(match.team_a.name),
+        _team_identity(match.team_b.name),
     }
     candidates: list[dict[str, Any]] = []
     for raw in records:
         if not isinstance(raw, dict):
             continue
         raw_pair = {
-            normalize_lookup_key(str(raw.get("team_name_radiant") or "")),
-            normalize_lookup_key(str(raw.get("team_name_dire") or "")),
+            _team_identity(str(raw.get("team_name_radiant") or "")),
+            _team_identity(str(raw.get("team_name_dire") or "")),
         }
         if "" in raw_pair or raw_pair != expected_pair:
             continue
@@ -131,7 +131,7 @@ def _build_match_context(
 ) -> dict[str, Any]:
     radiant_name = str(raw.get("team_name_radiant") or "")
     dire_name = str(raw.get("team_name_dire") or "")
-    team_a_side = "radiant" if normalize_lookup_key(match.team_a.name) == normalize_lookup_key(radiant_name) else "dire"
+    team_a_side = "radiant" if _team_identity(match.team_a.name) == _team_identity(radiant_name) else "dire"
     team_b_side = "dire" if team_a_side == "radiant" else "radiant"
     players = raw.get("players") if isinstance(raw.get("players"), list) else []
     team_a_picks = _picks_for_side(players, team_a_side, hero_map)
@@ -205,6 +205,10 @@ def _hero_map(payload: Any) -> dict[int, dict[str, Any]]:
             continue
         result[hero_id] = value
     return result
+
+
+def _team_identity(value: str) -> str:
+    return normalize_lookup_key(normalize_team_name(value))
 
 
 def _build_report(

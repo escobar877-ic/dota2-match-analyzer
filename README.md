@@ -925,6 +925,11 @@ otherwise the preview fails closed to Formula/Elo. Preview confidence is always
 low, it remains excluded from strict metrics and promotion, and it never changes
 the strict `/matches/{id}/prediction` access rules.
 
+The current Esports World Cup participant set is maintained manually in
+`config/tier1_teams.json`. Exact verified team identities and conservative
+aliases are allowed; placeholders such as `TBD` and academy/youth rosters remain
+blocked. A tournament invitation never auto-adds an unknown team to Tier 1.
+
 ## Build a real OpenDota match-ID dataset
 
 Collect up to 1,000 finished matches from configured TI, Riyadh/EWC,
@@ -1013,6 +1018,11 @@ strict Tier 1 prospective metrics, training, model promotion, or automated
 betting decisions. Formula, Elo, ML, and combined preview component metrics are
 reported separately so a larger prospective sample can show whether the extra
 components help before any product policy is reconsidered.
+
+Forecast identity includes an explicit evaluation scope. If a team is manually
+verified as Tier 1 after an earlier preview was captured, the scheduler creates
+a new immutable `strict_tier1` snapshot without rewriting or hiding the original
+`verified_pro_preview` evidence.
 
 The scheduler also writes
 `ml/artifacts/prospective_decision_report.json`. The decision remains

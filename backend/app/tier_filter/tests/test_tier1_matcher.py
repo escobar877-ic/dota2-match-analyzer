@@ -60,6 +60,38 @@ class Tier1MatcherTests(unittest.TestCase):
         self.assertTrue(matcher.is_tier1_team("Yandex"))
         self.assertTrue(matcher.is_tier1_match("Team Yandex", "Team Spirit", "Esports World Cup"))
 
+    def test_project_config_contains_verified_ewc_2026_participants(self):
+        matcher = Tier1Matcher()
+        participants = {
+            "1win",
+            "Aurora",
+            "BetBoom Team",
+            "GamerLegion",
+            "Inner Circle x Insanity",
+            "L1ga Team",
+            "LGD Gaming",
+            "Level UP",
+            "MOUZ",
+            "Nigma Galaxy",
+            "OG",
+            "PARIVISION",
+            "PlayTime",
+            "Poor Rangers",
+            "REKONIX",
+            "Rune Eaters",
+            "Team Falcons",
+            "Team Liquid",
+            "Team Nemesis",
+            "Team Spirit",
+            "Team Yandex",
+            "Vici Gaming",
+            "Virtus.pro",
+            "Xtreme Gaming",
+        }
+        self.assertTrue(all(matcher.is_tier1_team(team) for team in participants))
+        self.assertFalse(matcher.is_tier1_team("TBD"))
+        self.assertFalse(matcher.is_tier1_team("Spirit Academy"))
+
     def test_unknown_tournament_returns_false(self):
         matcher = build_test_matcher()
         self.assertFalse(matcher.is_tier1_tournament("Small Local Cup"))

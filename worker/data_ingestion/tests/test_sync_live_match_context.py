@@ -103,6 +103,23 @@ class SyncLiveMatchContextTests(unittest.TestCase):
         self.assertEqual(report["matched_live_matches"], 0)
         self.assertEqual(report["matches"], {})
 
+    def test_verified_team_alias_matches_live_record(self):
+        self.team_a.name = "PARIVISION"
+        self.team_b.name = "Rune Eaters"
+        self.db.commit()
+        raw = _live_record()
+        raw["team_name_radiant"] = "PVISION"
+        raw["team_name_dire"] = "Rune Eaters"
+
+        report = sync_live_match_context(
+            artifact_path=Path(self.temp_dir.name) / "live.json",
+            db=self.db,
+            client=FakeOpenDotaClient([raw]),
+        )
+
+        self.assertEqual(report["matched_live_matches"], 1)
+        self.assertEqual(report["drafts_available"], 1)
+
 
 def _live_record() -> dict:
     now = int(datetime.now(UTC).timestamp())

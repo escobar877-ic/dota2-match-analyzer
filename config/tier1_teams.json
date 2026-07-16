@@ -43,7 +43,7 @@
   },
   {
     "name": "PARIVISION",
-    "aliases": ["PARI", "PARIVISION", "Parivision"],
+    "aliases": ["PARI", "PARIVISION", "Parivision", "PVISION"],
     "region": "EEU",
     "active": true
   },
@@ -93,6 +93,102 @@
     "name": "BOOM Esports",
     "aliases": ["BOOM", "BOOM Esports"],
     "region": "SA",
+    "active": true
+  },
+  {
+    "name": "1win",
+    "aliases": ["1win", "1win Team", "1WIN"],
+    "region": "EEU",
+    "active": true
+  },
+  {
+    "name": "GamerLegion",
+    "aliases": ["GamerLegion", "GL"],
+    "region": "WEU",
+    "active": true
+  },
+  {
+    "name": "Inner Circle x Insanity",
+    "aliases": ["Inner Circle x Insanity", "ICxI"],
+    "region": "SA",
+    "active": true
+  },
+  {
+    "name": "L1ga Team",
+    "aliases": ["L1ga Team", "L1GA TEAM", "L1GA"],
+    "region": "EEU",
+    "active": true
+  },
+  {
+    "name": "LGD Gaming",
+    "aliases": ["LGD Gaming", "LGD"],
+    "region": "China",
+    "active": true
+  },
+  {
+    "name": "Level UP",
+    "aliases": ["Level UP"],
+    "region": "WEU",
+    "active": true
+  },
+  {
+    "name": "MOUZ",
+    "aliases": ["MOUZ", "Mouz"],
+    "region": "WEU",
+    "active": true
+  },
+  {
+    "name": "Nigma Galaxy",
+    "aliases": ["Nigma Galaxy", "Nigma", "NGX"],
+    "region": "WEU",
+    "active": true
+  },
+  {
+    "name": "OG",
+    "aliases": ["OG"],
+    "region": "WEU",
+    "active": true
+  },
+  {
+    "name": "PlayTime",
+    "aliases": ["PlayTime"],
+    "region": "SEA",
+    "active": true
+  },
+  {
+    "name": "Poor Rangers",
+    "aliases": ["Poor Rangers"],
+    "region": "EEU",
+    "active": true
+  },
+  {
+    "name": "REKONIX",
+    "aliases": ["REKONIX", "Rekonix"],
+    "region": "SEA",
+    "active": true
+  },
+  {
+    "name": "Rune Eaters",
+    "aliases": ["Rune Eaters", "Rune Eaters Esports"],
+    "region": "EEU",
+    "active": true
+  },
+  {
+    "name": "Team Nemesis",
+    "aliases": ["Team Nemesis"],
+    "region": "SA",
+    "active": true
+  },
+  {
+    "name": "Vici Gaming",
+    "aliases": ["Vici Gaming", "Vici", "VG"],
+    "region": "China",
+    "active": true
+  },
+  {
+    "name": "Virtus.pro",
+    "aliases": ["Virtus.pro", "Virtus Pro", "VP"],
+    "region": "EEU",
     "active": true
   }
 ]

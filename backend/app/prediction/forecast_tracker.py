@@ -76,6 +76,7 @@ def snapshot_upcoming_forecasts(
                 existing_forecasts[(forecast.match_id, forecast.horizon_bucket)].append(forecast)
         created = 0
         rescheduled_snapshots = 0
+        scope_upgrade_snapshots = 0
         skipped_existing = 0
         errors = []
         samples = []
@@ -86,16 +87,22 @@ def snapshot_upcoming_forecasts(
             horizon_bucket = horizon_bucket_for_lead_time(lead_time_hours)
             if horizon_bucket is None:
                 continue
+            is_preview = match.id in preview_match_ids
+            evaluation_scope = "verified_pro_preview" if is_preview else "strict_tier1"
             same_horizon = existing_forecasts.get((match.id, horizon_bucket), [])
+            same_scope = [
+                forecast
+                for forecast in same_horizon
+                if _forecast_evaluation_scope(forecast) == evaluation_scope
+            ]
             if any(
                 _schedule_difference_minutes(forecast.scheduled_start, match.start_time)
                 <= SCHEDULE_DRIFT_MINUTES
-                for forecast in same_horizon
+                for forecast in same_scope
             ):
                 skipped_existing += 1
                 continue
             try:
-                is_preview = match.id in preview_match_ids
                 prediction = (
                     (preview_prediction_builder or build_verified_pro_preview)(db, match)
                     if is_preview
@@ -103,7 +110,7 @@ def snapshot_upcoming_forecasts(
                 )
                 outcomes = _prediction_outcomes(prediction)
                 if horizon_bucket == "final":
-                    for previous in same_horizon:
+                    for previous in same_scope:
                         previous.is_primary = False
                 forecast = PredictionForecast(
                     match_id=match.id,
@@ -113,6 +120,7 @@ def snapshot_upcoming_forecasts(
                     scheduled_start=match.start_time,
                     lead_time_hours=round(lead_time_hours, 2),
                     prediction_type=prediction.prediction_type,
+                    evaluation_scope=evaluation_scope,
                     model_version=_effective_model_version(prediction),
                     team_a_probability=prediction.team_a_probability,
                     team_b_probability=prediction.team_b_probability,
@@ -131,8 +139,10 @@ def snapshot_upcoming_forecasts(
                 db.flush()
                 db.commit()
                 created += 1
-                if same_horizon:
+                if same_scope:
                     rescheduled_snapshots += 1
+                elif same_horizon:
+                    scope_upgrade_snapshots += 1
                 existing_forecasts[(match.id, horizon_bucket)].append(forecast)
                 samples.append(
                     {
@@ -154,6 +164,7 @@ def snapshot_upcoming_forecasts(
             "status": "warning" if errors else "ok",
             "created": created,
             "rescheduled_snapshots": rescheduled_snapshots,
+            "scope_upgrade_snapshots": scope_upgrade_snapshots,
             "eligible_matches": len(matches),
             "strict_eligible_matches": len(strict_matches),
             "preview_eligible_matches": len(preview_matches),
@@ -518,6 +529,14 @@ def _effective_model_version(prediction) -> str:
     if ml and ml.model_version:
         return ml.model_version
     return prediction.model_version
+
+
+def _forecast_evaluation_scope(forecast: PredictionForecast) -> str:
+    return forecast.evaluation_scope or (
+        "verified_pro_preview"
+        if forecast.prediction_type == "verified_pro_preview"
+        else "strict_tier1"
+    )
 
 
 def _schedule_difference_minutes(first: datetime, second: datetime) -> float:

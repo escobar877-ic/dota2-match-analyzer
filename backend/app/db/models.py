@@ -293,7 +293,8 @@ class PredictionForecast(Base):
             "match_id",
             "horizon_bucket",
             "scheduled_start",
-            name="uq_prediction_forecasts_match_horizon_schedule",
+            "evaluation_scope",
+            name="uq_prediction_forecasts_match_horizon_schedule_scope",
         ),
     )
 
@@ -316,6 +317,13 @@ class PredictionForecast(Base):
     scheduled_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     lead_time_hours: Mapped[float] = mapped_column(Float, nullable=False)
     prediction_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    evaluation_scope: Mapped[str] = mapped_column(
+        String(32),
+        default="strict_tier1",
+        server_default="strict_tier1",
+        nullable=False,
+        index=True,
+    )
     model_version: Mapped[str] = mapped_column(String(128), nullable=False)
     team_a_probability: Mapped[float] = mapped_column(Float, nullable=False)
     team_b_probability: Mapped[float] = mapped_column(Float, nullable=False)

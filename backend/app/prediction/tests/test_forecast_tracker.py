@@ -115,6 +115,80 @@ class ForecastTrackerTests(unittest.TestCase):
         self.assertEqual(preview_report["primary_settled_forecasts"], 1)
         self.assertTrue(preview_report["isolated_from_strict_metrics"])
 
+    def test_strict_snapshot_is_created_after_preview_scope_upgrade(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        now = datetime(2026, 1, 1, 10, tzinfo=timezone.utc)
+        db = Session(engine)
+        try:
+            team_a = Team(name="Team A", is_active_tier1=False)
+            team_b = Team(name="Team B", is_active_tier1=True)
+            db.add_all([team_a, team_b])
+            db.flush()
+            match = Match(
+                external_source="pandascore",
+                external_id="scope-upgrade",
+                team_a_id=team_a.id,
+                team_b_id=team_b.id,
+                tournament_name="Esports World Cup",
+                start_time=now + timedelta(hours=1),
+                format="BO3",
+                status="upcoming",
+                is_tier1_match=False,
+                competition_tier="pro",
+                verification_status="verified",
+                source_confidence="high",
+                is_prediction_eligible=False,
+            )
+            db.add(match)
+            db.commit()
+            match_id = match.id
+        finally:
+            db.close()
+
+        preview = self._prediction(match_id, "verified_pro_preview")
+        strict = self._prediction(match_id, "ensemble")
+        factory = lambda: Session(engine)
+        first = snapshot_upcoming_forecasts(
+            hours_ahead=4,
+            now=now,
+            db_factory=factory,
+            preview_prediction_builder=lambda _db, _match: preview,
+        )
+        self.assertEqual(first["created"], 1)
+
+        db = Session(engine)
+        try:
+            stored = db.get(Match, match_id)
+            stored.is_tier1_match = True
+            stored.is_prediction_eligible = True
+            stored.competition_tier = "tier1"
+            stored.team_a.is_active_tier1 = True
+            db.commit()
+        finally:
+            db.close()
+
+        second = snapshot_upcoming_forecasts(
+            hours_ahead=4,
+            now=now,
+            db_factory=factory,
+            strict_prediction_builder=lambda _db, _match: strict,
+        )
+
+        self.assertEqual(second["created"], 1)
+        self.assertEqual(second["scope_upgrade_snapshots"], 1)
+        self.assertEqual(second["strict_eligible_matches"], 1)
+        db = Session(engine)
+        try:
+            forecasts = db.query(PredictionForecast).order_by(PredictionForecast.id).all()
+            self.assertEqual(len(forecasts), 2)
+            self.assertEqual(
+                {forecast.evaluation_scope for forecast in forecasts},
+                {"verified_pro_preview", "strict_tier1"},
+            )
+        finally:
+            db.close()
+
     def test_scores_correct_bo2_draw(self):
         result = score_outcome(
             {"team_a": 0.2, "draw": 0.5, "team_b": 0.3},
@@ -426,6 +500,29 @@ class ForecastTrackerTests(unittest.TestCase):
             self.assertEqual(report["settlement_gaps"][0]["match_id"], match.id)
         finally:
             db.close()
+
+    @staticmethod
+    def _prediction(match_id: int, prediction_type: str) -> FormulaPredictionResponse:
+        return FormulaPredictionResponse(
+            match_id=str(match_id),
+            prediction_type=prediction_type,
+            model_version="test-model",
+            team_a_probability=0.6,
+            team_b_probability=0.4,
+            confidence="medium",
+            confidence_score=0.6,
+            factors=PredictionFactors(
+                recent_form=0.0,
+                team_rating=0.0,
+                head_to_head=0.0,
+                hero_pool=0.0,
+                roster_stability=0.0,
+            ),
+            explanation=["Forecast scope test."],
+            warning="Forecast scope test.",
+            fallback_used=False,
+            series_outcomes={"team_a_win": 0.65, "team_b_win": 0.35, "draw": 0.0},
+        )
 
     @staticmethod
     def _forecast(

@@ -156,6 +156,7 @@ def _summarize_step(result: dict[str, Any]) -> dict[str, Any]:
         "complete_rosters",
         "created",
         "rescheduled_snapshots",
+        "scope_upgrade_snapshots",
         "eligible_matches",
         "strict_eligible_matches",
         "preview_eligible_matches",
