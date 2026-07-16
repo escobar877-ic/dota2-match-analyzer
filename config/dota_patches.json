@@ -26,7 +26,43 @@
   {
     "patch_name": "7.40",
     "patch_version": "7.40",
-    "release_date": "2026-05-01",
+    "release_date": "2025-12-15",
+    "is_current": false
+  },
+  {
+    "patch_name": "7.40b",
+    "patch_version": "7.40b",
+    "release_date": "2025-12-23",
+    "is_current": false
+  },
+  {
+    "patch_name": "7.41",
+    "patch_version": "7.41",
+    "release_date": "2026-03-24",
+    "is_current": false
+  },
+  {
+    "patch_name": "7.41a",
+    "patch_version": "7.41a",
+    "release_date": "2026-03-27",
+    "is_current": false
+  },
+  {
+    "patch_name": "7.41b",
+    "patch_version": "7.41b",
+    "release_date": "2026-04-07",
+    "is_current": false
+  },
+  {
+    "patch_name": "7.41c",
+    "patch_version": "7.41c",
+    "release_date": "2026-05-06",
+    "is_current": false
+  },
+  {
+    "patch_name": "7.41d",
+    "patch_version": "7.41d",
+    "release_date": "2026-06-04",
     "is_current": true
   }
 ]

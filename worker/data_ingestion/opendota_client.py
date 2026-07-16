@@ -26,6 +26,12 @@ class OpenDotaClient(BaseDotaDataClient):
     def get_match(self, external_id: str) -> ClientResponse:
         return self._get(f"/matches/{external_id}")
 
+    def get_live_matches(self) -> ClientResponse:
+        return self._get("/live")
+
+    def get_heroes(self) -> ClientResponse:
+        return self._get("/constants/heroes")
+
     def get_league_matches(self, league_id: int | str) -> ClientResponse:
         return self._get(f"/leagues/{league_id}/matches")
 

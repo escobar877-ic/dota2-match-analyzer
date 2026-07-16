@@ -195,7 +195,7 @@ export function MatchDetailView() {
             {!match.is_tier1_match ? <VerifiedProNotice match={match} /> : null}
             {!match.is_tier1_match ? <VerifiedProDataPanel match={match} prediction={prediction} /> : null}
             <ContextPanel match={match} context={state.context} />
-            <DraftPanel draft={state.draft} draftFeatures={state.draftFeatures} />
+            <DraftPanel match={match} draft={state.draft} draftFeatures={state.draftFeatures} />
             <PredictionPanel match={match} prediction={prediction} />
           </>
         ) : (
@@ -219,7 +219,7 @@ function VerifiedProNotice({ match }: { match: MatchDetail }) {
         allowlist. The preview below is cautious context only and is not used for training, promotion, or automated betting.
       </p>
       {match.status === "live" ? (
-        <p className="prediction-warning">Live score and in-game state are not included. This remains a pre-match baseline.</p>
+        <p className="prediction-warning">Live context may be shown separately, but it is not used by this pre-match prediction baseline.</p>
       ) : null}
       {match.prediction_block_reason || match.excluded_reason ? (
         <p className="confidence-line">
@@ -423,35 +423,96 @@ function formatRosterContext(context: MatchContext["teams"]["team_a"]): string {
   return "Roster unknown";
 }
 
-function DraftPanel({ draft, draftFeatures }: { draft: MatchDraft | null; draftFeatures: DraftFeaturesResponse | null }) {
+function DraftPanel({
+  match,
+  draft,
+  draftFeatures,
+}: {
+  match: MatchDetail;
+  draft: MatchDraft | null;
+  draftFeatures: DraftFeaturesResponse | null;
+}) {
   if (!draft) {
     return null;
   }
 
   const features = draftFeatures?.features;
+  const liveContext = draft.live_context;
+  const teamAPicks = draft.entries.filter((entry) => entry.team_id === match.team_a.id && entry.action_type === "pick");
+  const teamBPicks = draft.entries.filter((entry) => entry.team_id === match.team_b.id && entry.action_type === "pick");
 
   return (
     <section className="prediction-placeholder context-panel" aria-label="Draft context">
       <div>
         <p className="panel-label">Draft</p>
-        <h2>{draft.draft_available ? (draft.draft_complete ? "Draft complete" : "Partial draft") : "Draft unavailable"}</h2>
+        <h2>
+          {liveContext
+            ? "Live map picks"
+            : draft.draft_available
+              ? draft.draft_complete
+                ? "Draft complete"
+                : "Partial draft"
+              : "Draft unavailable"}
+        </h2>
       </div>
+      {liveContext ? (
+        <p className="confidence-line">
+          Dota match {liveContext.dota_match_id ?? "unknown"} | {formatGameClock(liveContext.game_time_seconds)} | {liveContext.team_a.name} {liveContext.team_a.score ?? "-"}:{liveContext.team_b.score ?? "-"} {liveContext.team_b.name}
+        </p>
+      ) : null}
       <div className="context-grid">
         <InfoTile label="Team A picks" value={String(draft.team_a_picks_count)} />
         <InfoTile label="Team B picks" value={String(draft.team_b_picks_count)} />
         <InfoTile label="Team A bans" value={String(draft.team_a_bans_count)} />
         <InfoTile label="Team B bans" value={String(draft.team_b_bans_count)} />
       </div>
-      {features ? (
+      {draft.draft_available ? (
+        <div className="draft-picks-grid">
+          <DraftPickList teamName={match.team_a.name} picks={teamAPicks} />
+          <DraftPickList teamName={match.team_b.name} picks={teamBPicks} />
+        </div>
+      ) : null}
+      {features && !liveContext ? (
         <div className="context-grid">
           <InfoTile label="Hero comfort diff" value={formatFeatureValue(features.hero_pool_comfort_diff)} />
           <InfoTile label="Patch hero diff" value={formatFeatureValue(features.patch_hero_winrate_diff)} />
           <InfoTile label="Draft synergy diff" value={formatFeatureValue(features.draft_synergy_diff)} />
         </div>
       ) : null}
-      <p className="prediction-warning">Draft features are experimental and not used in main prediction yet.</p>
+      <p className="prediction-warning">
+        {liveContext?.source_note ?? "Draft features are experimental and not used in main prediction yet."}
+        {liveContext ? " Live picks are display-only and are not used in the main prediction." : ""}
+      </p>
     </section>
   );
+}
+
+function DraftPickList({ teamName, picks }: { teamName: string; picks: MatchDraft["entries"] }) {
+  return (
+    <section className="draft-pick-team" aria-label={`${teamName} picks`}>
+      <h3>{teamName}</h3>
+      {picks.length ? (
+        <ul className="explanation-list draft-pick-list">
+          {picks.map((entry) => (
+            <li key={`${entry.team_id}-${entry.hero?.hero_id ?? entry.hero_id}`}>
+              <strong>{entry.hero?.localized_name ?? `Hero ${entry.hero_id}`}</strong>
+              {entry.player_name ? <span>{entry.player_name}</span> : null}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="confidence-line">No picks available.</p>
+      )}
+    </section>
+  );
+}
+
+function formatGameClock(seconds: number | null): string {
+  if (typeof seconds !== "number" || seconds < 0) {
+    return "live time unavailable";
+  }
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 }
 
 function PredictionPanel({

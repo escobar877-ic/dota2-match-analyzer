@@ -366,6 +366,51 @@ h1 {
   gap: 12px;
 }
 
+.draft-picks-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  border-top: 1px solid var(--border);
+  padding-top: 18px;
+}
+
+.draft-pick-team {
+  min-width: 0;
+}
+
+.draft-pick-team h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.draft-pick-list {
+  margin-top: 12px;
+  padding-left: 0;
+  list-style: none;
+}
+
+.draft-pick-list li {
+  display: flex;
+  min-width: 0;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 9px;
+}
+
+.draft-pick-list strong,
+.draft-pick-list span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.draft-pick-list span {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: right;
+}
+
 .sync-log-list {
   display: grid;
   gap: 10px;
@@ -1240,6 +1285,7 @@ h1 {
   .matches-grid,
   .detail-grid,
   .context-grid,
+  .draft-picks-grid,
   .data-source-grid,
   .sync-log-row {
     grid-template-columns: minmax(0, 1fr);

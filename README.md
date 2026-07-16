@@ -498,7 +498,7 @@ Patches are loaded from `config/dota_patches.json`:
 docker compose run --rm backend python -m app.patches.patch_service --sync-config
 ```
 
-The patch list is maintained manually for now. Example dates in local config are placeholders for development and should be reviewed before using real data workflows. A future sync can replace this with a trusted external source.
+The patch list is maintained manually from Valve's Dota patch datafeed. The current local timeline includes patch `7.41d` (released 2026-06-04); update and re-sync the config when Valve publishes a newer gameplay patch.
 
 Synthetic dev seed creates roster and patch data for local testing. It must not be used for real accuracy claims.
 
@@ -587,6 +587,8 @@ These features can improve local backtests, but real accuracy still depends on c
 ## Draft prediction foundation
 
 Draft data can now be stored locally through `heroes`, `match_drafts`, and `draft_snapshots`. This foundation is read-only in the app and is not used by the main `/matches/{id}/prediction` endpoint yet.
+
+For currently running matches, the forecast scheduler also writes a read-only `live_match_context_report.json` from OpenDota's public live feed. When a PandaScore series can be matched to an exact live team pair, the match page shows the current map's hero picks and Dota match ID. OpenDota live data does not expose bans or original pick order, and this context is never added to training or the main prediction.
 
 Draft features are experimental and can be inspected separately:
 

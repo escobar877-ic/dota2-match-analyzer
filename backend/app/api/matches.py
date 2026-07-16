@@ -10,6 +10,7 @@ from app.api.errors import with_db_error_handling
 from app.database import get_db
 from app.db.models import Match, PredictionForecast, Team
 from app.drafts.draft_service import draft_to_dict
+from app.drafts.live_draft_context import load_live_match_context, live_context_to_draft_response
 from app.prediction.prediction_service import build_match_prediction
 from app.prediction.schemas import FormulaPredictionResponse
 from app.prediction.verified_pro_preview import (
@@ -498,7 +499,17 @@ def get_match_draft(match_id: int, db: Session = Depends(get_db)) -> dict:
     )
     if match is None:
         raise HTTPException(status_code=404, detail="Match not found")
-    return with_db_error_handling(lambda: draft_to_dict(db, match))
+
+    def build() -> dict:
+        stored_draft = draft_to_dict(db, match)
+        if stored_draft["draft_available"] or match.status != "live":
+            return stored_draft
+        live_context = load_live_match_context(match.id)
+        if live_context is None:
+            return stored_draft
+        return live_context_to_draft_response(match, live_context)
+
+    return with_db_error_handling(build)
 
 
 @router.get("/{match_id}/draft/features")

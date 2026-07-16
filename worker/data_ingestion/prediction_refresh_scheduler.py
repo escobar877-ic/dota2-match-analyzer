@@ -26,6 +26,7 @@ from app.prediction.prospective_decision import refresh_prospective_decision
 from app.prediction.forecast_tracker import settle_forecasts, snapshot_upcoming_forecasts
 from worker.data_ingestion.sync_tracked_results import sync_tracked_results
 from worker.data_ingestion.sync_ewc_matches import sync_ewc_matches
+from worker.data_ingestion.sync_live_match_context import sync_live_match_context
 from worker.data_ingestion.sync_upcoming_matches import sync_upcoming_matches
 from worker.data_ingestion.sync_upcoming_rosters import sync_upcoming_rosters
 
@@ -55,6 +56,7 @@ def run_prediction_refresh(
                 dry_run=False,
             ),
         ),
+        ("live_match_context", sync_live_match_context),
         ("upcoming_rosters", lambda: sync_upcoming_rosters(dry_run=False)),
         (
             "forecast_snapshots",
@@ -146,6 +148,8 @@ def _summarize_step(result: dict[str, Any]) -> dict[str, Any]:
         "records_updated",
         "records_excluded",
         "prediction_eligible_count",
+        "matched_live_matches",
+        "drafts_available",
         "competition_counts",
         "status_counts",
         "teams_seen",

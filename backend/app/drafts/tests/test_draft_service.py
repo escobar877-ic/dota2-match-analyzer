@@ -4,6 +4,7 @@ import sys
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
@@ -70,6 +71,37 @@ class DraftServiceTests(unittest.TestCase):
 
         self.assertTrue(response["draft_available"])
         self.assertEqual(len(response["entries"]), 2)
+
+    def test_api_uses_read_only_live_context_when_stored_draft_is_missing(self):
+        self.match.status = "live"
+        self.db.commit()
+        context = {
+            "draft_available": True,
+            "dota_match_id": "8899120700",
+            "series_id": "1120911",
+            "game_time_seconds": 900,
+            "source_note": "Live picks only.",
+            "team_a": {
+                "name": self.team_a.name,
+                "side": "dire",
+                "score": 6,
+                "picks": [{"hero_id": 1, "localized_name": "Anti-Mage", "hero_name": "antimage"}],
+            },
+            "team_b": {
+                "name": self.team_b.name,
+                "side": "radiant",
+                "score": 8,
+                "picks": [{"hero_id": 2, "localized_name": "Axe", "hero_name": "axe"}],
+            },
+        }
+
+        with patch("app.api.matches.load_live_match_context", return_value=context):
+            response = get_match_draft(self.match.id, db=self.db)
+
+        self.assertTrue(response["draft_available"])
+        self.assertEqual(response["live_context"]["dota_match_id"], "8899120700")
+        self.assertEqual([entry["hero"]["localized_name"] for entry in response["entries"]], ["Anti-Mage", "Axe"])
+        self.assertEqual(self.db.query(MatchDraft).count(), 0)
 
     def test_api_match_draft_features_works(self):
         response = get_match_draft_features(self.match.id, db=self.db)

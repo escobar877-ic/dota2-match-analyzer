@@ -156,7 +156,29 @@ export type MatchDraft = {
       localized_name: string;
       name: string;
     } | null;
+    player_name?: string | null;
+    source?: string | null;
   }>;
+  live_context?: {
+    source: string;
+    dota_match_id: string | null;
+    series_id: string | null;
+    game_time_seconds: number | null;
+    updated_at: string | null;
+    bans_available: boolean;
+    pick_order_available: boolean;
+    source_note: string | null;
+    team_a: {
+      name: string | null;
+      side: string | null;
+      score: number | null;
+    };
+    team_b: {
+      name: string | null;
+      side: string | null;
+      score: number | null;
+    };
+  };
 };
 
 export type DraftFeaturesResponse = {
