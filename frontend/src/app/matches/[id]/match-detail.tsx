@@ -449,6 +449,7 @@ function DraftPanel({
 
   const features = draftFeatures?.features;
   const liveContext = draft.live_context;
+  const liveAvailability = draft.live_availability;
   const seriesContext = draft.series_context;
   const teamAPicks = draft.entries.filter((entry) => entry.team_id === match.team_a.id && entry.action_type === "pick");
   const teamBPicks = draft.entries.filter((entry) => entry.team_id === match.team_b.id && entry.action_type === "pick");
@@ -468,7 +469,9 @@ function DraftPanel({
               ? draft.draft_complete
                 ? "Draft complete"
                 : "Partial draft"
-              : "Draft unavailable"}
+              : liveAvailability
+                ? "Live draft not verified"
+                : "Draft unavailable"}
         </h2>
       </div>
       {liveContext ? (
@@ -528,7 +531,10 @@ function DraftPanel({
         </div>
       ) : null}
       <p className="prediction-warning">
-        {liveContext?.source_note ?? seriesContext?.source_note ?? "Draft features are experimental and not used in main prediction yet."}
+        {liveContext?.source_note
+          ?? seriesContext?.source_note
+          ?? liveAvailability?.message
+          ?? "Draft features are experimental and not used in main prediction yet."}
         {liveContext ? " Live picks are display-only and are not used in the main prediction." : ""}
       </p>
     </section>

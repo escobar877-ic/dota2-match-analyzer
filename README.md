@@ -624,7 +624,7 @@ These features can improve local backtests, but real accuracy still depends on c
 
 Draft data can now be stored locally through `heroes`, `match_drafts`, and `draft_snapshots`. This foundation is read-only in the app and is not used by the main `/matches/{id}/prediction` endpoint yet.
 
-For currently running matches, the forecast scheduler also writes a read-only `live_match_context_report.json` from OpenDota's public live feed. When a PandaScore series can be matched to an exact live team pair, the match page shows the current map's hero picks and Dota match ID. OpenDota live data does not expose bans or original pick order, and this context is never added to training or the main prediction.
+For currently running matches, the forecast scheduler also writes a read-only `live_match_context_report.json` from OpenDota's public live feed. A PandaScore series is linked only by exact canonical team names or by a unique 5v5 Steam-account match from manually mapped OpenDota team IDs. Anonymous, incomplete, stand-in, or ambiguous rows remain unlinked and the match page explains why. OpenDota live data does not expose bans or original pick order, and this context is never added to training or the main prediction.
 
 Draft features are experimental and can be inspected separately:
 

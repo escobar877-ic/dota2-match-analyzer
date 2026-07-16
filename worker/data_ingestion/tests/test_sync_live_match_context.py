@@ -24,8 +24,13 @@ from worker.data_ingestion.sync_live_match_context import sync_live_match_contex
 
 
 class FakeOpenDotaClient:
-    def __init__(self, live_records: list[dict] | None = None) -> None:
+    def __init__(
+        self,
+        live_records: list[dict] | None = None,
+        team_players: dict[str, list[int]] | None = None,
+    ) -> None:
         self.live_records = live_records if live_records is not None else [_live_record()]
+        self.team_players = team_players or {}
 
     def get_live_matches(self) -> ClientResponse:
         return ClientResponse(ok=True, data=self.live_records)
@@ -41,6 +46,16 @@ class FakeOpenDotaClient:
                 }
                 for hero_id in range(1, 11)
             },
+        )
+
+    def get_team_players(self, team_id: str) -> ClientResponse:
+        account_ids = self.team_players.get(str(team_id), [])
+        return ClientResponse(
+            ok=True,
+            data=[
+                {"account_id": account_id, "is_current_team_member": True}
+                for account_id in account_ids
+            ],
         )
 
 
@@ -119,6 +134,79 @@ class SyncLiveMatchContextTests(unittest.TestCase):
 
         self.assertEqual(report["matched_live_matches"], 1)
         self.assertEqual(report["drafts_available"], 1)
+
+    def test_anonymous_live_record_matches_only_exact_verified_5v5_accounts(self):
+        raw = _live_record()
+        raw["team_name_radiant"] = ""
+        raw["team_name_dire"] = ""
+        client = FakeOpenDotaClient(
+            [raw],
+            team_players={
+                "9823272": list(range(1005, 1010)),
+                "7119388": list(range(1000, 1005)),
+            },
+        )
+
+        report = sync_live_match_context(
+            artifact_path=Path(self.temp_dir.name) / "live.json",
+            db=self.db,
+            client=client,
+        )
+
+        context = report["matches"][str(self.match.id)]
+        self.assertEqual(report["identity_fallback_attempts"], 1)
+        self.assertEqual(report["identity_fallback_matches"], 1)
+        self.assertEqual(context["identity_method"], "verified_5v5_account_ids")
+        self.assertEqual(context["team_a"]["side"], "dire")
+        self.assertEqual(context["team_b"]["side"], "radiant")
+
+    def test_incomplete_roster_does_not_link_anonymous_live_record(self):
+        raw = _live_record()
+        raw["team_name_radiant"] = ""
+        raw["team_name_dire"] = ""
+        client = FakeOpenDotaClient(
+            [raw],
+            team_players={
+                "9823272": list(range(1005, 1009)),
+                "7119388": list(range(1000, 1005)),
+            },
+        )
+
+        report = sync_live_match_context(
+            artifact_path=Path(self.temp_dir.name) / "live.json",
+            db=self.db,
+            client=client,
+        )
+
+        self.assertEqual(report["matched_live_matches"], 0)
+        availability = report["availability"][str(self.match.id)]
+        self.assertEqual(availability["status"], "unavailable")
+        self.assertEqual(availability["reason"], "opendota_current_roster_not_exactly_five")
+
+    def test_roster_identity_prefers_single_active_map_over_completed_map(self):
+        completed = _live_record()
+        completed["team_name_radiant"] = ""
+        completed["team_name_dire"] = ""
+        completed["match_id"] = "8899000001"
+        completed["deactivate_time"] = completed["activate_time"] + 1800
+        active = _live_record()
+        active["team_name_radiant"] = ""
+        active["team_name_dire"] = ""
+        client = FakeOpenDotaClient(
+            [completed, active],
+            team_players={
+                "9823272": list(range(1005, 1010)),
+                "7119388": list(range(1000, 1005)),
+            },
+        )
+
+        report = sync_live_match_context(
+            artifact_path=Path(self.temp_dir.name) / "live.json",
+            db=self.db,
+            client=client,
+        )
+
+        self.assertEqual(report["matches"][str(self.match.id)]["dota_match_id"], "8899120700")
 
 
 def _live_record() -> dict:

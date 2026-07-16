@@ -103,6 +103,25 @@ class DraftServiceTests(unittest.TestCase):
         self.assertEqual([entry["hero"]["localized_name"] for entry in response["entries"]], ["Anti-Mage", "Axe"])
         self.assertEqual(self.db.query(MatchDraft).count(), 0)
 
+    def test_api_explains_when_live_draft_identity_is_not_verified(self):
+        self.match.status = "live"
+        self.db.commit()
+        availability = {
+            "status": "unavailable",
+            "reason": "no_exact_5v5_account_identity_match",
+            "message": "OpenDota live rows could not be matched safely.",
+            "identity_method": None,
+        }
+
+        with patch("app.api.matches.load_live_match_context", return_value=None), patch(
+            "app.api.matches.load_live_match_availability",
+            return_value=availability,
+        ):
+            response = get_match_draft(self.match.id, db=self.db)
+
+        self.assertFalse(response["draft_available"])
+        self.assertEqual(response["live_availability"]["reason"], "no_exact_5v5_account_identity_match")
+
     def test_api_returns_verified_series_map_drafts_for_finished_schedule_row(self):
         self.match.external_source = "pandascore"
         self.match.external_id = "series-1"

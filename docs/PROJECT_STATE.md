@@ -39,6 +39,7 @@ Last verified: 2026-07-16
   components when they are available. They remain low-confidence and isolated
   from strict metrics, training, promotion, and automated betting.
 - Draft model remains experimental and is not used by the main prediction endpoint.
+- Live picks are display-only and require exact canonical names or a unique verified 5v5 Steam-account identity; unsafe matches remain unavailable with a reason.
 - The API reports per-map strength separately from derived BO2/BO3/BO5 series
   outcomes. Prospective settlement evaluates the series outcome, including BO2
   draws, rather than comparing map strength with a series winner.

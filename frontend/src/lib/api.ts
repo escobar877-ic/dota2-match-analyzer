@@ -182,6 +182,14 @@ export type MatchDraft = {
       score: number | null;
     };
   };
+  live_availability?: {
+    status: "matched" | "unavailable" | string;
+    reason: string | null;
+    message: string;
+    identity_method: string | null;
+    team_a?: string;
+    team_b?: string;
+  };
   series_context?: {
     mapping_status: "matched" | "ambiguous" | string;
     source: string;

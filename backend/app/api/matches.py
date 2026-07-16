@@ -10,7 +10,11 @@ from app.api.errors import with_db_error_handling
 from app.database import get_db
 from app.db.models import Match, PredictionForecast, Team
 from app.drafts.draft_service import draft_to_dict
-from app.drafts.live_draft_context import load_live_match_context, live_context_to_draft_response
+from app.drafts.live_draft_context import (
+    live_context_to_draft_response,
+    load_live_match_availability,
+    load_live_match_context,
+)
 from app.drafts.series_draft_context import build_series_draft_context
 from app.prediction.prediction_service import build_match_prediction
 from app.prediction.forecast_tracker import horizon_bucket_for_lead_time
@@ -555,13 +559,20 @@ def get_match_draft(match_id: int, db: Session = Depends(get_db)) -> dict:
         stored_draft = draft_to_dict(db, match)
         if stored_draft["draft_available"]:
             return stored_draft
+        live_availability = None
         if match.status == "live":
             live_context = load_live_match_context(match.id)
             if live_context is not None:
                 return live_context_to_draft_response(match, live_context)
+            live_availability = load_live_match_availability(match.id)
         series_context = build_series_draft_context(db, match)
         if series_context is not None:
-            return {**stored_draft, "series_context": series_context}
+            response = {**stored_draft, "series_context": series_context}
+            if live_availability is not None:
+                response["live_availability"] = live_availability
+            return response
+        if live_availability is not None:
+            return {**stored_draft, "live_availability": live_availability}
         return stored_draft
 
     return with_db_error_handling(build)

@@ -19,6 +19,39 @@ def load_live_match_context(
     now: datetime | None = None,
     max_age_minutes: int = 45,
 ) -> dict[str, Any] | None:
+    report = _load_fresh_report(path=path, now=now, max_age_minutes=max_age_minutes)
+    if report is None:
+        return None
+    matches = report.get("matches")
+    if not isinstance(matches, dict):
+        return None
+    context = matches.get(str(match_id))
+    return context if isinstance(context, dict) and context.get("draft_available") else None
+
+
+def load_live_match_availability(
+    match_id: int,
+    *,
+    path: str | Path | None = None,
+    now: datetime | None = None,
+    max_age_minutes: int = 45,
+) -> dict[str, Any] | None:
+    report = _load_fresh_report(path=path, now=now, max_age_minutes=max_age_minutes)
+    if report is None:
+        return None
+    availability = report.get("availability")
+    if not isinstance(availability, dict):
+        return None
+    context = availability.get(str(match_id))
+    return context if isinstance(context, dict) else None
+
+
+def _load_fresh_report(
+    *,
+    path: str | Path | None,
+    now: datetime | None,
+    max_age_minutes: int,
+) -> dict[str, Any] | None:
     target = Path(path) if path is not None else LIVE_MATCH_CONTEXT_REPORT_PATH
     if not target.exists():
         return None
@@ -32,11 +65,7 @@ def load_live_match_context(
     current_time = current_time if current_time.tzinfo else current_time.replace(tzinfo=UTC)
     if current_time - generated_at > timedelta(minutes=max_age_minutes):
         return None
-    matches = report.get("matches")
-    if not isinstance(matches, dict):
-        return None
-    context = matches.get(str(match_id))
-    return context if isinstance(context, dict) and context.get("draft_available") else None
+    return report if isinstance(report, dict) else None
 
 
 def live_context_to_draft_response(match: Match, context: dict[str, Any]) -> dict[str, Any]:
