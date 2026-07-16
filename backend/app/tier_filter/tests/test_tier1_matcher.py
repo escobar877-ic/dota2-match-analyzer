@@ -54,6 +54,12 @@ class Tier1MatcherTests(unittest.TestCase):
         matcher = build_test_matcher()
         self.assertFalse(matcher.is_tier1_team("Random Stack"))
 
+    def test_project_config_classifies_team_yandex_as_tier1(self):
+        matcher = Tier1Matcher()
+        self.assertTrue(matcher.is_tier1_team("Team Yandex"))
+        self.assertTrue(matcher.is_tier1_team("Yandex"))
+        self.assertTrue(matcher.is_tier1_match("Team Yandex", "Team Spirit", "Esports World Cup"))
+
     def test_unknown_tournament_returns_false(self):
         matcher = build_test_matcher()
         self.assertFalse(matcher.is_tier1_tournament("Small Local Cup"))

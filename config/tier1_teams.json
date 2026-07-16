@@ -30,6 +30,12 @@
     "active": true
   },
   {
+    "name": "Team Yandex",
+    "aliases": ["Yandex", "Team Yandex"],
+    "region": "EEU",
+    "active": true
+  },
+  {
     "name": "Tundra Esports",
     "aliases": ["Tundra", "Tundra Esports"],
     "region": "WEU",
