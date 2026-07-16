@@ -20,6 +20,8 @@ from app.db.models import Player, Team, TeamRoster
 from worker.data_ingestion.roster_history_enrichment import (
     PlayerObservation,
     RosterObservation,
+    _aware,
+    _parse_date_arg,
     apply_roster_segments,
     build_roster_segments,
     extract_player_observations,
@@ -56,6 +58,16 @@ class RosterHistoryEnrichmentTests(unittest.TestCase):
         self.assertEqual(len(roster or ()), 5)
         self.assertIsNone(extract_player_observations(players[:4]))
         self.assertIsNone(extract_player_observations([*players, {"account_id": 6}]))
+
+    def test_date_filter_parser_normalizes_dates_to_utc(self):
+        self.assertEqual(
+            _parse_date_arg("2026-07-07").isoformat(),
+            "2026-07-07T00:00:00+00:00",
+        )
+        self.assertEqual(
+            _parse_date_arg("2026-07-07T04:00:00+04:00").isoformat(),
+            "2026-07-07T00:00:00+00:00",
+        )
 
     def test_changed_roster_closes_previous_segment_without_overlap(self):
         first_time = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
@@ -114,6 +126,72 @@ class RosterHistoryEnrichmentTests(unittest.TestCase):
         self.assertEqual(self.db.query(Player).count(), 5)
         self.assertEqual(self.db.query(TeamRoster).count(), 5)
         self.assertTrue(all(not row.is_active for row in self.db.query(TeamRoster).all()))
+
+    def test_partial_window_preserves_older_generated_history(self):
+        player = Player(external_source="opendota", external_id="99", nickname="old")
+        self.db.add(player)
+        self.db.flush()
+        old_start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        old_end = datetime(2026, 2, 1, tzinfo=timezone.utc)
+        self.db.add(
+            TeamRoster(
+                team_id=self.team_id,
+                player_id=player.id,
+                start_date=old_start,
+                end_date=old_end,
+                source="opendota_history",
+                is_active=False,
+            )
+        )
+        self.db.flush()
+        july = datetime(2026, 7, 10, tzinfo=timezone.utc)
+        segments = build_roster_segments([self._observation(2, july, range(1, 6))])
+
+        result = apply_roster_segments(
+            self.db,
+            segments,
+            replace_start=datetime(2026, 7, 7, tzinfo=timezone.utc),
+            replace_end=datetime(2026, 7, 20, tzinfo=timezone.utc),
+        )
+        self.db.flush()
+
+        old_row = self.db.query(TeamRoster).filter_by(player_id=player.id).one()
+        self.assertEqual(_aware(old_row.end_date), old_end)
+        self.assertEqual(result["roster_rows_invalidated"], 0)
+        self.assertEqual(result["roster_rows_truncated"], 0)
+
+    def test_partial_window_truncates_only_overlapping_segment(self):
+        player = Player(external_source="opendota", external_id="99", nickname="old")
+        self.db.add(player)
+        self.db.flush()
+        old_start = datetime(2026, 6, 1, tzinfo=timezone.utc)
+        self.db.add(
+            TeamRoster(
+                team_id=self.team_id,
+                player_id=player.id,
+                start_date=old_start,
+                end_date=datetime(2026, 8, 1, tzinfo=timezone.utc),
+                source="opendota_history",
+                is_active=False,
+            )
+        )
+        self.db.flush()
+        replace_start = datetime(2026, 7, 7, tzinfo=timezone.utc)
+        segments = build_roster_segments(
+            [self._observation(2, datetime(2026, 7, 10, tzinfo=timezone.utc), range(1, 6))]
+        )
+
+        result = apply_roster_segments(
+            self.db,
+            segments,
+            replace_start=replace_start,
+            replace_end=datetime(2026, 7, 20, tzinfo=timezone.utc),
+        )
+        self.db.flush()
+
+        old_row = self.db.query(TeamRoster).filter_by(player_id=player.id).one()
+        self.assertEqual(_aware(old_row.end_date), replace_start)
+        self.assertEqual(result["roster_rows_truncated"], 1)
 
     def _observation(
         self,

@@ -27,6 +27,7 @@ LEAGUES = {
     "riyadh_masters_2024": 16881,
     "riyadh_masters_2023": 15475,
     "ewc_2025": 18375,
+    "ewc_2026": 19785,
     "dreamleague_s20": 15439,
     "dreamleague_s22": 16201,
     "dreamleague_s25": 17765,
@@ -48,6 +49,7 @@ TOURNAMENT_NAMES = {
     "riyadh_masters_2024": "Riyadh Masters 2024",
     "riyadh_masters_2023": "Riyadh Masters 2023",
     "ewc_2025": "Esports World Cup 2025",
+    "ewc_2026": "Esports World Cup 2026",
     "dreamleague_s20": "DreamLeague Season 20",
     "dreamleague_s22": "DreamLeague Season 22",
     "dreamleague_s25": "DreamLeague Season 25",
@@ -101,6 +103,7 @@ def collect_matches(
     *,
     limit: int,
     sleep_seconds: float,
+    completed_before_unix: int | None = None,
     sleeper: Callable[[float], None] = time.sleep,
 ) -> CollectionResult:
     collected: list[dict[str, Any]] = []
@@ -122,7 +125,12 @@ def collect_matches(
                 processed.append(tournament_key)
                 total_raw += len(response.data)
                 for raw in response.data:
-                    normalized = normalize_league_match(raw, tournament_key, league_id)
+                    normalized = normalize_league_match(
+                        raw,
+                        tournament_key,
+                        league_id,
+                        completed_before_unix=completed_before_unix,
+                    )
                     if normalized is not None:
                         collected.append(normalized)
         if index < len(leagues) - 1 and sleep_seconds > 0:
@@ -155,6 +163,8 @@ def normalize_league_match(
     raw: Any,
     tournament_key: str,
     league_id: int,
+    *,
+    completed_before_unix: int | None = None,
 ) -> Optional[dict[str, Any]]:
     if not isinstance(raw, dict):
         return None
@@ -164,6 +174,10 @@ def normalize_league_match(
         return None
 
     start_time = _as_int(raw.get("start_time"))
+    if completed_before_unix is not None and (
+        start_time <= 0 or start_time + duration > completed_before_unix
+    ):
+        return None
     radiant_win = raw.get("radiant_win")
     if radiant_win is True:
         winner_side = "radiant"
@@ -311,6 +325,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", default="data/real/real_match_ids_800_1000.csv")
     parser.add_argument("--sleep", type=float, default=1.0)
     parser.add_argument(
+        "--league",
+        action="append",
+        choices=sorted(LEAGUES),
+        help="Collect only this configured league key. Repeat to select multiple leagues.",
+    )
+    parser.add_argument(
+        "--completion-grace-minutes",
+        type=float,
+        default=60.0,
+        help="Exclude maps whose reported end is newer than this safety window.",
+    )
+    parser.add_argument(
         "--skip-team-enrichment",
         action="store_true",
         help="Do not resolve missing team names through /api/teams/{team_id}.",
@@ -322,17 +348,25 @@ def parse_args() -> argparse.Namespace:
         parser.error("--min-matches cannot be negative")
     if args.sleep < 0:
         parser.error("--sleep cannot be negative")
+    if args.completion_grace_minutes < 0:
+        parser.error("--completion-grace-minutes cannot be negative")
     return args
 
 
 def main() -> None:
     args = parse_args()
     client = OpenDotaClient()
+    selected_leagues = (
+        {key: LEAGUES[key] for key in args.league}
+        if args.league
+        else LEAGUES
+    )
     result = collect_matches(
-        LEAGUES,
+        selected_leagues,
         client.get_league_matches,
         limit=args.limit,
         sleep_seconds=args.sleep,
+        completed_before_unix=int(time.time() - args.completion_grace_minutes * 60),
     )
     matches = result.matches
     team_failures: dict[str, str] = {}

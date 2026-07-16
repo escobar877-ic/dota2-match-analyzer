@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -190,6 +191,33 @@ class DataSyncApiTests(unittest.TestCase):
             path = Path(temp_dir) / "source_mappings.json"
             path.write_text(
                 '{"opendota":{"teams":{"101":"Team Liquid"},"tournaments":{"TI":"The International"}}}',
+                encoding="utf-8",
+            )
+            with patch("app.api.data_sync.SOURCE_MAPPINGS_PATH", path):
+                response = get_source_mappings_status()
+
+        self.assertEqual(response["status"], "ok")
+        self.assertEqual(response["mapped_teams_count"], 1)
+        self.assertEqual(response["mapped_tournaments_count"], 1)
+
+    def test_source_mappings_status_supports_verified_mapping_objects(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "source_mappings.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "opendota": {
+                            "teams": {
+                                "55": {
+                                    "canonical_name": "Poor Rangers",
+                                    "manual_verified": True,
+                                    "verification_note": "Verified source ID.",
+                                }
+                            },
+                            "tournaments": {"19785": "Esports World Cup"},
+                        }
+                    }
+                ),
                 encoding="utf-8",
             )
             with patch("app.api.data_sync.SOURCE_MAPPINGS_PATH", path):

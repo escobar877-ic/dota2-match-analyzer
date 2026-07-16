@@ -1,7 +1,42 @@
 {
   "opendota": {
-    "teams": {},
-    "tournaments": {}
+    "teams": {
+      "55": {
+        "canonical_name": "Poor Rangers",
+        "manual_verified": true,
+        "verification_note": "OpenDota PowerRangers ID used by Poor Rangers at EWC 2026."
+      },
+      "2163": "Team Liquid",
+      "726228": "Vici Gaming",
+      "2586976": "OG",
+      "7119388": "Team Spirit",
+      "8255888": {
+        "canonical_name": "BetBoom Team",
+        "manual_verified": true,
+        "verification_note": "OpenDota legacy BoomBoys ID matches BetBoom EWC 2026 series and opponents."
+      },
+      "8261500": "Xtreme Gaming",
+      "9256405": "Level UP",
+      "9338413": "MOUZ",
+      "9467224": "Aurora",
+      "9691969": "Team Nemesis",
+      "9823272": "Team Yandex",
+      "9824702": "PARIVISION",
+      "9828897": "REKONIX",
+      "9895247": "Rune Eaters",
+      "9895392": "Virtus.pro",
+      "9964962": "GamerLegion",
+      "10019843": "Inner Circle x Insanity",
+      "10136357": "Nigma Galaxy",
+      "10150538": "LGD Gaming",
+      "10182299": "L1ga Team",
+      "10182309": "PlayTime",
+      "10182357": "1win",
+      "9247354": "Team Falcons"
+    },
+    "tournaments": {
+      "19785": "Esports World Cup"
+    }
   },
   "stratz": {
     "teams": {},

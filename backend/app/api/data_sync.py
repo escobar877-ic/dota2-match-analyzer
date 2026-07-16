@@ -354,15 +354,25 @@ def _source_mappings_status() -> dict:
     for source, source_mapping in mappings.items():
         teams = source_mapping.get("teams", {}) if isinstance(source_mapping, dict) else {}
         tournaments = source_mapping.get("tournaments", {}) if isinstance(source_mapping, dict) else {}
-        for key, canonical in teams.items():
+        for key, mapping_value in teams.items():
+            canonical = (
+                mapping_value.get("canonical_name")
+                if isinstance(mapping_value, dict)
+                else mapping_value
+            )
             mapped_teams_count += 1
-            if not matcher.is_tier1_team(str(canonical)):
+            if not canonical or not matcher.is_tier1_team(str(canonical)):
                 invalid.append(
                     {"source": str(source), "kind": "team", "key": str(key), "canonical_name": str(canonical)}
                 )
-        for key, canonical in tournaments.items():
+        for key, mapping_value in tournaments.items():
+            canonical = (
+                mapping_value.get("canonical_name")
+                if isinstance(mapping_value, dict)
+                else mapping_value
+            )
             mapped_tournaments_count += 1
-            if not matcher.is_tier1_tournament(str(canonical)):
+            if not canonical or not matcher.is_tier1_tournament(str(canonical)):
                 invalid.append(
                     {"source": str(source), "kind": "tournament", "key": str(key), "canonical_name": str(canonical)}
                 )

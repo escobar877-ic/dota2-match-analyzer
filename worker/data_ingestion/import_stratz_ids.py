@@ -33,6 +33,7 @@ from worker.data_ingestion.normalizer import (
     normalize_tournament_name,
 )
 from worker.data_ingestion.pro_match_quality import validate_verified_pro_match
+from worker.data_ingestion.source_mapping import resolve_source_team
 from worker.data_ingestion.sources.opendota_client import OpenDotaSourceClient
 from worker.data_ingestion.sources.stratz_client import StratzSourceClient
 from worker.data_ingestion.sync_logging import SyncCounters, write_sync_log
@@ -43,6 +44,7 @@ TRUSTED_OPENDOTA_LEAGUE_IDS = {
     "18324", "16935", "15728", "16881", "15475", "18375", "15439", "16201",
     "17765", "18111", "18988", "17509", "17795", "18058", "18358", "19543",
     "17414", "19101",
+    "19785",
 }
 
 
@@ -296,8 +298,10 @@ def normalized_match_from_trusted_league_csv(
     league_id = (row.get("league_id") or "").strip()
     team_a_id = (row.get("radiant_team_id") or "").strip()
     team_b_id = (row.get("dire_team_id") or "").strip()
-    team_a_name = normalize_team_name(row.get("radiant_name"))
-    team_b_name = normalize_team_name(row.get("dire_name"))
+    raw_team_a = (row.get("radiant_name") or "").strip()
+    raw_team_b = (row.get("dire_name") or "").strip()
+    team_a_name = resolve_source_team("opendota", team_a_id, raw_team_a) or normalize_team_name(raw_team_a)
+    team_b_name = resolve_source_team("opendota", team_b_id, raw_team_b) or normalize_team_name(raw_team_b)
     source_url = (row.get("opendota_match_url") or "").strip()
     duration = _positive_int(row.get("duration_sec"))
     start_timestamp = _positive_int(row.get("start_time_unix"))
@@ -335,8 +339,8 @@ def normalized_match_from_trusted_league_csv(
         start_time=datetime.fromtimestamp(start_timestamp, tz=UTC),
         status="finished",
         winner_team_external_id=team_a_id if radiant_win == "true" else team_b_id,
-        raw_team_a=(row.get("radiant_name") or "").strip(),
-        raw_team_b=(row.get("dire_name") or "").strip(),
+        raw_team_a=raw_team_a,
+        raw_team_b=raw_team_b,
         raw_team_a_id=team_a_id,
         raw_team_b_id=team_b_id,
         raw_tournament=(row.get("tournament_name") or "").strip(),

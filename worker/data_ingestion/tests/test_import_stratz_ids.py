@@ -90,6 +90,30 @@ class ImportStratzIdsTests(unittest.TestCase):
         self.assertEqual(match.tournament_name, "DreamLeague")
         self.assertEqual(match.winner_team_external_id, "1")
 
+    def test_ewc_2026_league_csv_is_trusted_and_canonicalized(self):
+        match = normalized_match_from_trusted_league_csv(
+            {
+                "source": "opendota",
+                "tournament_key": "ewc_2026",
+                "tournament_name": "Esports World Cup 2026",
+                "league_id": "19785",
+                "match_id": "8899307453",
+                "start_time_unix": "1784211550",
+                "duration_sec": "2185",
+                "radiant_team_id": "9895247",
+                "radiant_name": "Rune Eaters",
+                "dire_team_id": "9824702",
+                "dire_name": "PVISION",
+                "radiant_win": "False",
+                "winner_side": "dire",
+                "opendota_match_url": "https://www.opendota.com/matches/8899307453",
+            }
+        )
+        self.assertIsNotNone(match)
+        self.assertEqual(match.tournament_name, "Esports World Cup")
+        self.assertEqual(match.team_b_name, "PARIVISION")
+        self.assertEqual(match.winner_team_external_id, "9824702")
+
     @staticmethod
     def _match(team_a: str, team_b: str, tournament: str) -> NormalizedMatch:
         return NormalizedMatch(

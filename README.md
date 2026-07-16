@@ -939,6 +939,21 @@ DreamLeague, ESL One, PGL Wallachia, and BLAST league endpoints:
 python3 scripts/build_real_match_ids_dataset.py --limit 1000 --min-matches 800
 ```
 
+Collect only settled maps from the current Esports World Cup with a one-hour
+post-match safety window:
+
+```bash
+python3 scripts/build_real_match_ids_dataset.py \
+  --league ewc_2026 \
+  --completion-grace-minutes 60 \
+  --limit 300 \
+  --min-matches 1 \
+  --output data/real/ewc_2026_match_ids.csv
+```
+
+The grace window prevents a map still present in OpenDota's live league feed
+from being treated as a settled training result.
+
 The default output is `data/real/real_match_ids_800_1000.csv`. A failed league
 is reported and skipped without losing successful results. The generated CSV is
 compatible with the guarded match-ID detail importer:
@@ -990,6 +1005,21 @@ history from OpenDota match details. Review the dry-run and then apply it:
 bash scripts/enrich_roster_history.sh --limit 1000
 bash scripts/enrich_roster_history.sh --limit 1000 --apply
 ```
+
+Limit a roster pass to one tournament window when adding a new real batch:
+
+```bash
+bash scripts/enrich_roster_history.sh \
+  --tournament "Esports World Cup" \
+  --start-date 2026-07-07 \
+  --end-date 2026-07-20 \
+  --limit 300 \
+  --apply
+```
+
+Partial date windows replace only overlapping generated roster intervals. Older
+history is preserved. `--cache-only --merge-only` can rebuild known segments
+from the local source cache without network access or invalidating other rows.
 
 The generated roster interval starts one second after the observed match, so a
 match never receives player identities learned from its own post-match payload.

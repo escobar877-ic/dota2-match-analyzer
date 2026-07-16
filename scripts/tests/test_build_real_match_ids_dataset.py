@@ -48,6 +48,20 @@ class BuildRealMatchIdsDatasetTests(unittest.TestCase):
         )
         self.assertEqual([row["match_id"] for row in result.matches], ["11", "12"])
 
+    def test_completion_grace_excludes_live_or_unsettled_map(self):
+        payload = [
+            self._match(10, start_time=100, duration=100),
+            self._match(11, start_time=250, duration=100),
+        ]
+        result = collect_matches(
+            {"ewc_2026": 19785},
+            lambda _league_id: ClientResponse(ok=True, data=payload),
+            limit=10,
+            sleep_seconds=0,
+            completed_before_unix=300,
+        )
+        self.assertEqual([row["match_id"] for row in result.matches], ["10"])
+
     def test_failed_or_broken_league_does_not_stop_collection(self):
         def fetch(league_id):
             if league_id == 1:

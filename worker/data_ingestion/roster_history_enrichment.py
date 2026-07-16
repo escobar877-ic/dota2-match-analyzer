@@ -70,6 +70,11 @@ def enrich_roster_history(
     limit: int = 1000,
     sleep_seconds: float = 1.0,
     max_gap_days: int = 45,
+    tournament: str | None = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    cache_only: bool = False,
+    merge_only: bool = False,
     refresh_cache: bool = False,
     client: OpenDotaClient | None = None,
     artifact_path: str | Path | None = REPORT_PATH,
@@ -82,24 +87,30 @@ def enrich_roster_history(
     errors: list[str] = []
     observations: list[RosterObservation] = []
     cache_hits = 0
+    cache_misses = 0
     fetched = 0
     incomplete_rosters = 0
     try:
+        statement = select(Match).options(selectinload(Match.team_a), selectinload(Match.team_b)).where(
+            Match.status == "finished",
+            Match.winner_team_id.is_not(None),
+            Match.is_tier1_match.is_(True),
+            Match.external_source == "csv_import",
+            Match.dataset_profile == "historical_training",
+            Match.verification_status == "verified",
+            Match.source_confidence.in_(["high", "medium"]),
+            Match.external_id.is_not(None),
+            Match.start_time.is_not(None),
+        )
+        if tournament:
+            statement = statement.where(Match.tournament_name.ilike(f"%{tournament.strip()}%"))
+        if start_date:
+            statement = statement.where(Match.start_time >= start_date)
+        if end_date:
+            statement = statement.where(Match.start_time < end_date)
         matches = list(
             db.scalars(
-                select(Match)
-                .options(selectinload(Match.team_a), selectinload(Match.team_b))
-                .where(
-                    Match.status == "finished",
-                    Match.winner_team_id.is_not(None),
-                    Match.is_tier1_match.is_(True),
-                    Match.external_source == "csv_import",
-                    Match.dataset_profile == "historical_training",
-                    Match.verification_status == "verified",
-                    Match.source_confidence.in_(["high", "medium"]),
-                    Match.external_id.is_not(None),
-                    Match.start_time.is_not(None),
-                )
+                statement
                 .order_by(Match.start_time.asc(), Match.id.asc())
                 .limit(max(1, min(int(limit), 2000)))
             ).all()
@@ -110,10 +121,14 @@ def enrich_roster_history(
                 client,
                 match.external_id or "",
                 refresh_cache=refresh_cache,
+                cache_only=cache_only,
             )
             cache_hits += int(from_cache)
             fetched += int(raw is not None and not from_cache)
             if raw is None:
+                if cache_only and fetch_error == "detail cache miss":
+                    cache_misses += 1
+                    continue
                 counters.records_excluded += 1
                 errors.append(f"match_id={match.external_id}: {fetch_error or 'detail unavailable'}")
                 continue
@@ -150,7 +165,13 @@ def enrich_roster_history(
         roster_rows_updated = 0
         players_created = 0
         if apply and segments:
-            result = apply_roster_segments(db, segments)
+            result = apply_roster_segments(
+                db,
+                segments,
+                replace_start=start_date,
+                replace_end=end_date,
+                merge_only=merge_only,
+            )
             roster_rows_created = result["roster_rows_created"]
             roster_rows_updated = result["roster_rows_updated"]
             players_created = result["players_created"]
@@ -167,8 +188,11 @@ def enrich_roster_history(
                     "observations": len(observations),
                     "segments": len(segments),
                     "cache_hits": cache_hits,
+                    "cache_misses": cache_misses,
                     "fetched": fetched,
                     "max_gap_days": max_gap_days,
+                    "cache_only": cache_only,
+                    "merge_only": merge_only,
                     "no_future_data": True,
                     "training_changed": False,
                     "promotion_changed": False,
@@ -182,17 +206,27 @@ def enrich_roster_history(
             "status": "warning" if errors or incomplete_rosters else "ok",
             "generated_at": datetime.now(UTC).isoformat(),
             "mode": "apply" if apply else "dry_run",
+            "filters": {
+                "tournament": tournament,
+                "start_date": start_date.isoformat() if start_date else None,
+                "end_date": end_date.isoformat() if end_date else None,
+            },
+            "cache_only": cache_only,
+            "merge_only": merge_only,
             "records_seen": counters.records_seen,
             "matches_with_roster_observations": len({item.match_id for item in observations}),
             "team_roster_observations": len(observations),
             "roster_segments": len(segments),
             "incomplete_team_rosters": incomplete_rosters,
             "cache_hits": cache_hits,
+            "cache_misses": cache_misses,
             "details_fetched": fetched,
             "records_excluded": counters.records_excluded,
             "players_created": players_created,
             "roster_rows_created": roster_rows_created,
             "roster_rows_updated": roster_rows_updated,
+            "roster_rows_invalidated": result.get("roster_rows_invalidated", 0) if apply and segments else 0,
+            "roster_rows_truncated": result.get("roster_rows_truncated", 0) if apply and segments else 0,
             "max_gap_days": max_gap_days,
             "source": "opendota_match_details",
             "roster_source": ROSTER_SOURCE,
@@ -279,7 +313,14 @@ def build_roster_segments(
     return segments
 
 
-def apply_roster_segments(db, segments: list[RosterSegment]) -> dict[str, int]:
+def apply_roster_segments(
+    db,
+    segments: list[RosterSegment],
+    *,
+    replace_start: datetime | None = None,
+    replace_end: datetime | None = None,
+    merge_only: bool = False,
+) -> dict[str, int]:
     team_ids = sorted({segment.team_id for segment in segments})
     existing_rows = list(
         db.scalars(
@@ -289,10 +330,24 @@ def apply_roster_segments(db, segments: list[RosterSegment]) -> dict[str, int]:
             )
         ).all()
     )
-    # Soft-invalidate obsolete generated rows; rebuild below without hard delete.
-    for row in existing_rows:
-        row.is_active = False
-        row.end_date = row.start_date
+    roster_rows_invalidated = 0
+    roster_rows_truncated = 0
+    if not merge_only:
+        for row in existing_rows:
+            action = _replacement_action(
+                row,
+                replace_start=replace_start,
+                replace_end=replace_end,
+            )
+            if action == "preserve":
+                continue
+            row.is_active = False
+            if action == "truncate":
+                row.end_date = replace_start
+                roster_rows_truncated += 1
+            else:
+                row.end_date = row.start_date
+                roster_rows_invalidated += 1
 
     players_created = 0
     roster_rows_created = 0
@@ -346,7 +401,28 @@ def apply_roster_segments(db, segments: list[RosterSegment]) -> dict[str, int]:
         "players_created": players_created,
         "roster_rows_created": roster_rows_created,
         "roster_rows_updated": roster_rows_updated,
+        "roster_rows_invalidated": roster_rows_invalidated,
+        "roster_rows_truncated": roster_rows_truncated,
     }
+
+
+def _replacement_action(
+    row: TeamRoster,
+    *,
+    replace_start: datetime | None,
+    replace_end: datetime | None,
+) -> str:
+    if replace_start is None and replace_end is None:
+        return "invalidate"
+    row_start = _aware(row.start_date)
+    row_end = _aware(row.end_date) if row.end_date else datetime.max.replace(tzinfo=UTC)
+    window_start = _aware(replace_start) if replace_start else datetime.min.replace(tzinfo=UTC)
+    window_end = _aware(replace_end) if replace_end else datetime.max.replace(tzinfo=UTC)
+    if row_end <= window_start or row_start >= window_end:
+        return "preserve"
+    if row_start < window_start:
+        return "truncate"
+    return "invalidate"
 
 
 def _load_match_detail(
@@ -354,6 +430,7 @@ def _load_match_detail(
     match_id: str,
     *,
     refresh_cache: bool,
+    cache_only: bool = False,
 ) -> tuple[dict[str, Any] | None, bool, str | None]:
     cache_path = CACHE_DIR / f"{match_id}.json"
     if not refresh_cache and cache_path.exists():
@@ -363,6 +440,8 @@ def _load_match_detail(
                 return raw, True, None
         except (OSError, json.JSONDecodeError):
             pass
+    if cache_only:
+        return None, False, "detail cache miss"
     response, _, _ = _fetch_match_detail(
         client,
         match_id,
@@ -380,6 +459,10 @@ def _load_match_detail(
 
 def _player_ids(players: tuple[PlayerObservation, ...]) -> tuple[str, ...]:
     return tuple(player.external_id for player in players)
+
+
+def _aware(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
 def _unique(values: list[str]) -> list[str]:
@@ -402,8 +485,17 @@ def main() -> None:
     )
     parser.add_argument("--limit", type=int, default=1000)
     parser.add_argument("--sleep", type=float, default=1.0)
+    parser.add_argument("--tournament")
+    parser.add_argument("--start-date", type=_parse_date_arg)
+    parser.add_argument("--end-date", type=_parse_date_arg)
     parser.add_argument("--max-gap-days", type=int, default=45)
     parser.add_argument("--refresh-cache", action="store_true")
+    parser.add_argument("--cache-only", action="store_true")
+    parser.add_argument(
+        "--merge-only",
+        action="store_true",
+        help="Upsert derived segments without invalidating existing generated history.",
+    )
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
     enrich_roster_history(
@@ -411,8 +503,23 @@ def main() -> None:
         limit=args.limit,
         sleep_seconds=max(0.0, args.sleep),
         max_gap_days=max(1, args.max_gap_days),
+        tournament=args.tournament,
+        start_date=args.start_date,
+        end_date=args.end_date,
+        cache_only=args.cache_only,
+        merge_only=args.merge_only,
         refresh_cache=args.refresh_cache,
     )
+
+
+def _parse_date_arg(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("expected ISO date or datetime") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 if __name__ == "__main__":

@@ -27,6 +27,21 @@ class SourceMappingTests(unittest.TestCase):
 
         self.assertEqual(resolve_source_team("opendota", "101", "Liquid", mappings), "Team Liquid")
 
+    def test_project_mapping_covers_verified_ewc_2026_opendota_team_ids(self):
+        expected = {
+            "55": "Poor Rangers",
+            "8255888": "BetBoom Team",
+            "9256405": "Level UP",
+            "9824702": "PARIVISION",
+            "10182299": "L1ga Team",
+            "10182309": "PlayTime",
+            "10182357": "1win",
+        }
+        for external_id, canonical in expected.items():
+            with self.subTest(external_id=external_id):
+                self.assertEqual(resolve_source_team("opendota", external_id, "source label"), canonical)
+        self.assertEqual(validate_source_mapping()["status"], "ok")
+
     def test_invalid_mapping_to_non_tier1_fails_validation(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "source_mappings.json"
