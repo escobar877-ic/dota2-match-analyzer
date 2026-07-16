@@ -103,6 +103,41 @@ class DraftServiceTests(unittest.TestCase):
         self.assertEqual([entry["hero"]["localized_name"] for entry in response["entries"]], ["Anti-Mage", "Axe"])
         self.assertEqual(self.db.query(MatchDraft).count(), 0)
 
+    def test_api_returns_verified_series_map_drafts_for_finished_schedule_row(self):
+        self.match.external_source = "pandascore"
+        self.match.external_id = "series-1"
+        self.match.status = "finished"
+        map_match = Match(
+            external_source="csv_import",
+            external_id="8899120700",
+            team_a_id=self.team_b.id,
+            team_b_id=self.team_a.id,
+            tournament_name=self.match.tournament_name,
+            start_time=self.match.start_time,
+            status="finished",
+            winner_team_id=self.team_a.id,
+        )
+        self.db.add(map_match)
+        self.db.flush()
+        self.db.add(
+            MatchDraft(
+                match_id=map_match.id,
+                team_id=self.team_a.id,
+                hero_id=self.heroes[0].id,
+                action_type="pick",
+                pick_order=1,
+                draft_order=1,
+                source="opendota_detail",
+            )
+        )
+        self.db.commit()
+
+        response = get_match_draft(self.match.id, db=self.db)
+
+        self.assertFalse(response["draft_available"])
+        self.assertEqual(response["series_context"]["mapping_status"], "matched")
+        self.assertEqual(response["series_context"]["maps"][0]["dota_match_id"], "8899120700")
+
     def test_api_match_draft_features_works(self):
         response = get_match_draft_features(self.match.id, db=self.db)
 

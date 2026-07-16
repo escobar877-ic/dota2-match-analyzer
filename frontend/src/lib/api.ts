@@ -182,6 +182,29 @@ export type MatchDraft = {
       score: number | null;
     };
   };
+  series_context?: {
+    mapping_status: "matched" | "ambiguous" | string;
+    source: string;
+    map_count: number;
+    source_note: string;
+    maps: Array<{
+      match_id: number;
+      database_match_id: number;
+      dota_match_id: string;
+      game_number: number;
+      start_time: string | null;
+      status: string;
+      winner_team_id: number | null;
+      winner_team_name: string | null;
+      draft_available: boolean;
+      draft_complete: boolean;
+      team_a_picks_count: number;
+      team_b_picks_count: number;
+      team_a_bans_count: number;
+      team_b_bans_count: number;
+      entries: MatchDraft["entries"];
+    }>;
+  };
 };
 
 export type DraftFeaturesResponse = {

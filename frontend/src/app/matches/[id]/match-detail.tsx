@@ -443,6 +443,7 @@ function DraftPanel({
 
   const features = draftFeatures?.features;
   const liveContext = draft.live_context;
+  const seriesContext = draft.series_context;
   const teamAPicks = draft.entries.filter((entry) => entry.team_id === match.team_a.id && entry.action_type === "pick");
   const teamBPicks = draft.entries.filter((entry) => entry.team_id === match.team_b.id && entry.action_type === "pick");
 
@@ -453,6 +454,10 @@ function DraftPanel({
         <h2>
           {liveContext
             ? "Live map picks"
+            : seriesContext?.mapping_status === "ambiguous"
+              ? "Map draft mapping ambiguous"
+              : seriesContext?.maps.length
+                ? `${seriesContext.maps.length} map draft${seriesContext.maps.length === 1 ? "" : "s"}`
             : draft.draft_available
               ? draft.draft_complete
                 ? "Draft complete"
@@ -465,27 +470,59 @@ function DraftPanel({
           Dota match {liveContext.dota_match_id ?? "unknown"} | {formatGameClock(liveContext.game_time_seconds)} | {liveContext.team_a.name} {liveContext.team_a.score ?? "-"}:{liveContext.team_b.score ?? "-"} {liveContext.team_b.name}
         </p>
       ) : null}
-      <div className="context-grid">
-        <InfoTile label="Team A picks" value={String(draft.team_a_picks_count)} />
-        <InfoTile label="Team B picks" value={String(draft.team_b_picks_count)} />
-        <InfoTile label="Team A bans" value={String(draft.team_a_bans_count)} />
-        <InfoTile label="Team B bans" value={String(draft.team_b_bans_count)} />
-      </div>
+      {!seriesContext?.maps.length ? (
+        <div className="context-grid">
+          <InfoTile label="Team A picks" value={String(draft.team_a_picks_count)} />
+          <InfoTile label="Team B picks" value={String(draft.team_b_picks_count)} />
+          <InfoTile label="Team A bans" value={String(draft.team_a_bans_count)} />
+          <InfoTile label="Team B bans" value={String(draft.team_b_bans_count)} />
+        </div>
+      ) : null}
       {draft.draft_available ? (
         <div className="draft-picks-grid">
           <DraftPickList teamName={match.team_a.name} picks={teamAPicks} />
           <DraftPickList teamName={match.team_b.name} picks={teamBPicks} />
         </div>
       ) : null}
-      {features && !liveContext ? (
+      {features && !liveContext && !seriesContext?.maps.length ? (
         <div className="context-grid">
           <InfoTile label="Hero comfort diff" value={formatFeatureValue(features.hero_pool_comfort_diff)} />
           <InfoTile label="Patch hero diff" value={formatFeatureValue(features.patch_hero_winrate_diff)} />
           <InfoTile label="Draft synergy diff" value={formatFeatureValue(features.draft_synergy_diff)} />
         </div>
       ) : null}
+      {seriesContext?.maps.length ? (
+        <div className="series-map-list">
+          {seriesContext.maps.map((mapDraft) => {
+            const mapTeamAPicks = mapDraft.entries.filter(
+              (entry) => entry.team_id === match.team_a.id && entry.action_type === "pick",
+            );
+            const mapTeamBPicks = mapDraft.entries.filter(
+              (entry) => entry.team_id === match.team_b.id && entry.action_type === "pick",
+            );
+            return (
+              <section className="series-map-draft" key={mapDraft.database_match_id}>
+                <div className="series-map-heading">
+                  <div>
+                    <p className="panel-label">Map {mapDraft.game_number}</p>
+                    <h3>Dota match {mapDraft.dota_match_id}</h3>
+                  </div>
+                  <span className="status-badge">{mapDraft.draft_complete ? "Complete draft" : "Partial draft"}</span>
+                </div>
+                <p className="confidence-line">
+                  {mapDraft.winner_team_name ? `Winner: ${mapDraft.winner_team_name}` : "Winner unavailable"}
+                </p>
+                <div className="draft-picks-grid">
+                  <DraftPickList teamName={match.team_a.name} picks={mapTeamAPicks} />
+                  <DraftPickList teamName={match.team_b.name} picks={mapTeamBPicks} />
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      ) : null}
       <p className="prediction-warning">
-        {liveContext?.source_note ?? "Draft features are experimental and not used in main prediction yet."}
+        {liveContext?.source_note ?? seriesContext?.source_note ?? "Draft features are experimental and not used in main prediction yet."}
         {liveContext ? " Live picks are display-only and are not used in the main prediction." : ""}
       </p>
     </section>

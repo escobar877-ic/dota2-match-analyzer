@@ -404,6 +404,30 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.series-map-list {
+  display: grid;
+  gap: 14px;
+}
+
+.series-map-draft {
+  border: 1px solid var(--border);
+  padding: 18px;
+  background: rgba(8, 12, 9, 0.54);
+}
+
+.series-map-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.series-map-heading h3 {
+  margin: 4px 0 0;
+  font-size: 17px;
+}
+
 .draft-pick-list span {
   color: var(--muted);
   font-family: var(--mono);
