@@ -112,5 +112,33 @@ services:
       backend:
         condition: service_healthy
 
+  live-context-scheduler:
+    image: betboom-worker:latest
+    container_name: dota-analyzer-live-context-scheduler
+    restart: unless-stopped
+    command:
+      - python
+      - -m
+      - worker.data_ingestion.sync_live_match_context
+      - --interval-seconds
+      - ${LIVE_CONTEXT_REFRESH_INTERVAL_SECONDS:-60}
+      - --compact
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/dota_analyzer}
+      OPENDOTA_API_KEY: ${OPENDOTA_API_KEY:-}
+      LIVE_CONTEXT_REFRESH_INTERVAL_SECONDS: ${LIVE_CONTEXT_REFRESH_INTERVAL_SECONDS:-60}
+    volumes:
+      - ./ml/artifacts:/app/ml/artifacts
+      - ./data:/app/data:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "assert b'sync_live_match_context' in open('/proc/1/cmdline', 'rb').read()"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres_data:

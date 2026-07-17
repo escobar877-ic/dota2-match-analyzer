@@ -15,6 +15,7 @@ from ml.config import ML_ARTIFACT_DIR
 
 REFRESH_REPORT_PATH = Path(ML_ARTIFACT_DIR) / "prediction_refresh_report.json"
 COVERAGE_REPORT_PATH = Path(ML_ARTIFACT_DIR) / "data_coverage_report.json"
+LIVE_CONTEXT_REPORT_PATH = Path(ML_ARTIFACT_DIR) / "live_match_context_report.json"
 
 
 def build_system_readiness(
@@ -23,10 +24,12 @@ def build_system_readiness(
     now: datetime | None = None,
     refresh_report_path: Path | None = None,
     coverage_report_path: Path | None = None,
+    live_context_report_path: Path | None = None,
 ) -> dict[str, Any]:
     now = _aware(now or datetime.now(timezone.utc))
     refresh_path = refresh_report_path or REFRESH_REPORT_PATH
     coverage_path = coverage_report_path or COVERAGE_REPORT_PATH
+    live_context_path = live_context_report_path or LIVE_CONTEXT_REPORT_PATH
 
     db.execute(select(1)).scalar_one()
     active_model = db.scalar(
@@ -38,11 +41,13 @@ def build_system_readiness(
 
     model_check = _model_check(active_model)
     scheduler_check = _scheduler_check(refresh_path, now)
+    live_context_check = _live_context_check(live_context_path, now)
     coverage_check = _coverage_check(coverage_path)
     checks = {
         "database": {"status": "ok"},
         "active_model": model_check,
         "forecast_scheduler": scheduler_check,
+        "live_context_scheduler": live_context_check,
         "data_coverage": coverage_check,
     }
     degraded = any(check["status"] != "ok" for check in checks.values())
@@ -54,6 +59,7 @@ def build_system_readiness(
         "checks": checks,
         "active_model_version": model_check.get("version"),
         "scheduler_age_minutes": scheduler_check.get("age_minutes"),
+        "live_context_age_minutes": live_context_check.get("age_minutes"),
         "real_tier1_matches": coverage_check.get("real_tier1_matches"),
         "verified_pro_matches": coverage_check.get("verified_pro_matches"),
         "warnings": [
@@ -143,6 +149,46 @@ def _coverage_check(path: Path) -> dict[str, Any]:
         "patch_coverage_ratio": report.get("patch_coverage_ratio"),
         "roster_coverage_ratio": report.get("roster_coverage_ratio"),
         "message": None if real_rows >= 300 else "Fewer than 300 real strict Tier 1 matches are available.",
+    }
+
+
+def _live_context_check(path: Path, now: datetime) -> dict[str, Any]:
+    report = _read_json(path)
+    if report is None:
+        return {
+            "status": "warning",
+            "message": "Live context refresh report is missing.",
+            "report_path": str(path),
+        }
+    generated_at = _parse_datetime(report.get("generated_at"))
+    if generated_at is None:
+        return {
+            "status": "warning",
+            "message": "Live context refresh report has no valid generated_at timestamp.",
+            "report_path": str(path),
+        }
+    age_minutes = max(0.0, (now - generated_at).total_seconds() / 60.0)
+    stale_after = max(2, int(os.getenv("LIVE_CONTEXT_STALE_MINUTES", "5")))
+    report_status = str(report.get("status") or "missing").lower()
+    is_fresh = age_minutes <= stale_after
+    ok = is_fresh and report_status == "ok"
+    if report_status == "failed":
+        message = "Latest live context refresh failed."
+    elif report_status == "warning":
+        message = "Latest live context refresh completed with warnings."
+    elif not is_fresh:
+        message = f"Live context refresh is stale ({age_minutes:.0f} minutes old)."
+    else:
+        message = None
+    return {
+        "status": "ok" if ok else "warning",
+        "last_refresh_status": report_status,
+        "generated_at": generated_at.isoformat(),
+        "age_minutes": round(age_minutes, 1),
+        "stale_after_minutes": stale_after,
+        "matched_live_matches": int(report.get("matched_live_matches") or 0),
+        "drafts_available": int(report.get("drafts_available") or 0),
+        "message": message,
     }
 
 

@@ -4,8 +4,11 @@ import argparse
 import json
 import os
 import sys
+import time
+from contextlib import redirect_stdout
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from io import StringIO
 from pathlib import Path
 from typing import Any
 
@@ -455,8 +458,59 @@ def _write_report(report: dict[str, Any], artifact_path: str | Path | None) -> N
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Refresh read-only live Dota picks from OpenDota.")
-    parser.parse_args()
-    sync_live_match_context()
+    parser.add_argument("--once", action="store_true")
+    parser.add_argument("--compact", action="store_true")
+    parser.add_argument(
+        "--interval-seconds",
+        type=int,
+        default=int(os.getenv("LIVE_CONTEXT_REFRESH_INTERVAL_SECONDS", "60")),
+    )
+    args = parser.parse_args()
+
+    while True:
+        try:
+            if args.compact:
+                with redirect_stdout(StringIO()):
+                    report = sync_live_match_context()
+                print(
+                    json.dumps(
+                        {
+                            key: report.get(key)
+                            for key in (
+                                "status",
+                                "generated_at",
+                                "live_records_seen",
+                                "matched_live_matches",
+                                "drafts_available",
+                                "identity_fallback_matches",
+                                "warnings",
+                                "errors",
+                            )
+                        },
+                        sort_keys=True,
+                    ),
+                    flush=True,
+                )
+            else:
+                sync_live_match_context()
+        except Exception as exc:
+            # Keep the optional display-only feed alive across transient source failures.
+            print(
+                json.dumps(
+                    {
+                        "status": "failed",
+                        "generated_at": datetime.now(UTC).isoformat(),
+                        "source": "opendota_live",
+                        "errors": [f"{exc.__class__.__name__}: {exc}"],
+                    },
+                    indent=2,
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+        if args.once:
+            return
+        time.sleep(max(30, args.interval_seconds))
 
 
 if __name__ == "__main__":

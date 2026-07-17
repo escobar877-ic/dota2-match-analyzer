@@ -35,6 +35,7 @@ patch = json.loads(Path("ml/artifacts/patch_freshness_report.json").read_text(en
 print(f"Readiness: {readiness.get('status')} (ready={readiness.get('ready')})")
 print(f"Active model: {readiness.get('active_model_version') or 'formula/Elo fallback'}")
 print(f"Scheduler age: {readiness.get('scheduler_age_minutes')} minutes")
+print(f"Live context age: {readiness.get('live_context_age_minutes')} minutes")
 print(f"Project audit: {audit.get('status')} ({len(audit.get('errors') or [])} errors)")
 print(f"Match validation: {validation.get('status')} ({len(validation.get('errors') or [])} errors)")
 print(f"Real strict Tier 1 matches: {coverage.get('real_tier1_historical_matches_count', 0)}")

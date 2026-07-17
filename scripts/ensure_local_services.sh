@@ -4,7 +4,7 @@ set -euo pipefail
 export PATH="/usr/local/bin:/opt/homebrew/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REQUIRED_SERVICES=(postgres backend worker frontend forecast-scheduler)
+REQUIRED_SERVICES=(postgres backend worker frontend forecast-scheduler live-context-scheduler)
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "Docker CLI is not installed."

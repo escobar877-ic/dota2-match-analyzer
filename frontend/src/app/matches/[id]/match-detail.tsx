@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
+import { LocalDateTime } from "@/components/local-date-time";
 import {
   DraftFeaturesResponse,
   FormulaPrediction,
@@ -36,6 +37,9 @@ type MatchDetailState = {
   loading: boolean;
   error: string | null;
 };
+
+const LIVE_MATCH_POLL_INTERVAL_MS = 30_000;
+const UPCOMING_MATCH_POLL_INTERVAL_MS = 60_000;
 
 export function MatchDetailView() {
   const params = useParams<{ id: string }>();
@@ -118,6 +122,48 @@ export function MatchDetailView() {
       cancelled = true;
     };
   }, [params.id]);
+
+  useEffect(() => {
+    const status = state.match?.status;
+    if (status !== "live" && status !== "upcoming") {
+      return;
+    }
+    let cancelled = false;
+
+    async function refreshOperationalContext() {
+      try {
+        const match = await fetchFromBackend<MatchDetail>(`/matches/${params.id}`);
+        const canLoadContext = match.is_tier1_match || match.verification_status === "verified";
+        const [context, draft, draftFeatures] = canLoadContext
+          ? await Promise.all([
+              fetchOptional<MatchContext>(`/matches/${params.id}/context`),
+              fetchOptional<MatchDraft>(`/matches/${params.id}/draft`),
+              fetchOptional<DraftFeaturesResponse>(`/matches/${params.id}/draft/features`),
+            ])
+          : [null, null, null];
+        if (!cancelled) {
+          setState((current) => ({
+            ...current,
+            match,
+            context,
+            draft,
+            draftFeatures,
+          }));
+        }
+      } catch {
+        // Preserve the last verified state during a transient polling failure.
+      }
+    }
+
+    const interval = window.setInterval(
+      () => void refreshOperationalContext(),
+      status === "live" ? LIVE_MATCH_POLL_INTERVAL_MS : UPCOMING_MATCH_POLL_INTERVAL_MS,
+    );
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [params.id, state.match?.status]);
 
   if (state.loading) {
     return (
@@ -475,9 +521,12 @@ function DraftPanel({
         </h2>
       </div>
       {liveContext ? (
-        <p className="confidence-line">
-          Dota match {liveContext.dota_match_id ?? "unknown"} | {formatGameClock(liveContext.game_time_seconds)} | {liveContext.team_a.name} {liveContext.team_a.score ?? "-"}:{liveContext.team_b.score ?? "-"} {liveContext.team_b.name}
-        </p>
+        <div className="prediction-warning">
+          <p>
+            Dota match {liveContext.dota_match_id ?? "unknown"} | {formatGameClock(liveContext.game_time_seconds)} | {liveContext.team_a.name} {liveContext.team_a.score ?? "-"}:{liveContext.team_b.score ?? "-"} {liveContext.team_b.name}
+          </p>
+          <p>Source updated <LocalDateTime value={liveContext.updated_at} /></p>
+        </div>
       ) : null}
       {!seriesContext?.maps.length ? (
         <div className="context-grid">

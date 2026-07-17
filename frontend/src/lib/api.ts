@@ -995,6 +995,7 @@ export type SystemReadiness = {
   service: string;
   active_model_version: string | null;
   scheduler_age_minutes: number | null;
+  live_context_age_minutes: number | null;
   real_tier1_matches: number | null;
   verified_pro_matches: number | null;
   warnings: string[];

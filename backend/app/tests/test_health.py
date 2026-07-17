@@ -60,18 +60,57 @@ class SystemReadinessTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        live_context = self.root / "live-context.json"
+        live_context.write_text(
+            json.dumps(
+                {
+                    "status": "ok",
+                    "generated_at": (self.now - timedelta(seconds=45)).isoformat(),
+                    "matched_live_matches": 1,
+                    "drafts_available": 1,
+                }
+            ),
+            encoding="utf-8",
+        )
 
         report = build_system_readiness(
             self.db,
             now=self.now,
             refresh_report_path=refresh,
             coverage_report_path=coverage,
+            live_context_report_path=live_context,
         )
 
         self.assertEqual(report["status"], "ok")
         self.assertTrue(report["ready"])
         self.assertEqual(report["active_model_version"], "prematch_test")
         self.assertEqual(report["real_tier1_matches"], 358)
+        self.assertEqual(report["checks"]["live_context_scheduler"]["status"], "ok")
+        self.assertEqual(report["checks"]["live_context_scheduler"]["drafts_available"], 1)
+
+    def test_stale_live_context_report_is_degraded_but_ready(self):
+        live_context = self.root / "live-context.json"
+        live_context.write_text(
+            json.dumps(
+                {
+                    "status": "ok",
+                    "generated_at": (self.now - timedelta(minutes=10)).isoformat(),
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        report = build_system_readiness(
+            self.db,
+            now=self.now,
+            refresh_report_path=self.root / "missing-refresh.json",
+            coverage_report_path=self.root / "missing-coverage.json",
+            live_context_report_path=live_context,
+        )
+
+        self.assertTrue(report["ready"])
+        self.assertEqual(report["checks"]["live_context_scheduler"]["status"], "warning")
+        self.assertIn("stale", report["checks"]["live_context_scheduler"]["message"].lower())
 
     def test_missing_optional_runtime_state_is_degraded_but_fallback_ready(self):
         report = build_system_readiness(
